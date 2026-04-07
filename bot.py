@@ -32,7 +32,6 @@ ROLES = {
     "mod": "1482020649433038981",
     "qualified": "1482020652318720021",
     "challenger": "1482020655338750043",
-    "og": "1482020658685804574",
     "member": "1482020669452451850",
     "es_trader": "1482020672396853299",
     "nq_trader": "1482020675186196613",
@@ -399,7 +398,6 @@ class ForgeBot:
         
         # Assign roles
         await self.api("PUT", f"/guilds/{GUILD_ID}/members/{user_id}/roles/{ROLES['member']}")
-        await self.api("PUT", f"/guilds/{GUILD_ID}/members/{user_id}/roles/{ROLES['og']}")
         
         # Welcome DM
         try:
