@@ -370,10 +370,7 @@ class ForgeBot:
         except Exception as e:
             print(f"  ⚠️ Could not DM {username}: {e}")
         
-        # Welcome in channel
-        await self.api("POST", f"/channels/{CHANNELS['welcome']}/messages", {
-            "content": f"Welcome <@{user_id}>! 🔥 Head to <#{CHANNELS['get_roles']}> to get started."
-        })
+        # Keep #welcome clean — do not post a new public welcome message for every join.
         
         # Log
         account_age = user.get('created_at', 'Unknown')
