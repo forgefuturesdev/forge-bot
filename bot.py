@@ -550,8 +550,8 @@ class ForgeBot:
         member = data.get('member', {})
         member_roles = set(member.get('roles', []))
         
-        # Ignore bots and staff
-        if author.get('bot') or member_roles & STAFF_ROLES:
+        # Ignore bots
+        if author.get('bot'):
             return
         
         content_lower = content.lower().strip()
@@ -598,6 +598,45 @@ class ForgeBot:
                 await self.api("POST", f"/channels/{channel_id}/messages", {
                     "content": f"<@{user_id}> Easy on the caps lock 😅"
                 })
+
+        # --- TICKET STAFF RELAY (hide admin identity) ---
+        if member_roles & STAFF_ROLES and content_lower not in ['!close', '!closeticket', '!done']:
+            # Check if this is a ticket thread
+            channel_data = await self.api("GET", f"/channels/{channel_id}")
+            if channel_data and channel_data.get('parent_id') == CHANNELS['open_ticket']:
+                # It's a staff member in a ticket — relay through bot
+                await self.api("DELETE", f"/channels/{channel_id}/messages/{message_id}")
+                await self.api("POST", f"/channels/{channel_id}/messages", {
+                    "embeds": [{
+                        "description": content,
+                        "color": 0xFE602F,
+                        "author": {"name": "Forge Team"},
+                    }]
+                })
+                return
+
+        # --- TICKET CLOSE COMMAND ---
+        if content_lower in ['!close', '!closeticket', '!done']:
+            # Check if this is a ticket thread
+            channel_data = await self.api("GET", f"/channels/{channel_id}")
+            if channel_data and channel_data.get('parent_id') == CHANNELS['open_ticket']:
+                # It's a ticket thread — close it
+                username = author.get('username', 'Unknown')
+                await self.api("POST", f"/channels/{channel_id}/messages", {
+                    "embeds": [{
+                        "title": "🔒 Ticket Closed",
+                        "description": f"This ticket was closed by **{username}**.\n\nIf you need further help, open a new ticket in <#{CHANNELS['open_ticket']}>.",
+                        "color": 0xE74C3C,
+                    }]
+                })
+                # Archive and lock the thread
+                await self.api("PATCH", f"/channels/{channel_id}", {
+                    "archived": True,
+                    "locked": True
+                })
+                await self.log("🔒 Ticket Closed", f"Ticket in <#{channel_id}> closed by **{username}**.", 0xE74C3C)
+                print(f"  🔒 Ticket closed by {username}")
+                return
         
         # --- TICKET STAFF RELAY (hide admin identity) ---
         if member_roles & STAFF_ROLES and content_lower not in ['!close', '!closeticket', '!done']:
