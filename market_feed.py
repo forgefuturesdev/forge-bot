@@ -11,7 +11,7 @@ from ddgs import DDGS
 import os
 
 DISCORD_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
-MARKET_WATCH = "1482020924298362912"
+MARKET_WATCH = os.environ.get("DISCORD_MARKET_WATCH_CHANNEL_ID", "1482020924298362912")
 HEADERS = {"Authorization": f"Bot {DISCORD_TOKEN}", "Content-Type": "application/json"}
 BASE = "https://discord.com/api/v10"
 

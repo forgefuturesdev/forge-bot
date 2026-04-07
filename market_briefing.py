@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import os
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-JOE = "875670264"
+JOE = os.environ.get("TELEGRAM_CHAT_ID", "875670264")
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 def send(text):

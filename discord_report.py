@@ -10,8 +10,8 @@ import os
 
 DISCORD_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-GUILD_ID = "1474405047679848643"
-JOE_CHAT_ID = "875670264"
+GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "1474405047679848643")
+JOE_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "875670264")
 
 HEADERS = {"Authorization": f"Bot {DISCORD_TOKEN}", "Content-Type": "application/json"}
 BASE = "https://discord.com/api/v10"

@@ -14,7 +14,7 @@ import sys
 from datetime import datetime, timezone
 import os
 
-TOKEN = "" + os.environ.get("DISCORD_BOT_TOKEN", "") + ""
+TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 BASE = "https://discord.com/api/v10"
 HEADERS_D = {"Authorization": f"Bot {TOKEN}", "Content-Type": "application/json"}
 CHANNEL = "1482427993140760636"  # daily-highlights
