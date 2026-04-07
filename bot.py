@@ -178,21 +178,32 @@ class ForgeBot:
         })
 
     async def set_member_channel_visibility(self):
-        """Ensure Member can see intended public/support channels."""
+        """Ensure Member can see intended public/support channels using live discovery."""
         member_role = ROLES['member']
         view_channel = str(1024)
+        target_names = {'faq', 'open-ticket', 'platform-status', 'bug-reports', 'daily-highlights'}
+
+        channels = await self.api("GET", f"/guilds/{GUILD_ID}/channels")
+        if not channels:
+            return []
 
         targets = []
-        if 'CATEGORIES' in globals() and CATEGORIES.get('support'):
-            targets.append(CATEGORIES['support'])
-        targets.extend([
-            CHANNELS['faq'],
-            CHANNELS['open_ticket'],
-            CHANNELS['platform_status'],
-            CHANNELS['bug_reports'],
-        ])
-        if CHANNELS.get('daily_highlights'):
-            targets.append(CHANNELS['daily_highlights'])
+        support_category_ids = set()
+        for ch in channels:
+            name = ch.get('name', '')
+            ch_type = ch.get('type')
+            if ch_type == 4 and name.lower() == 'support':
+                support_category_ids.add(ch['id'])
+                targets.append(ch['id'])
+            elif name.lower() in target_names:
+                targets.append(ch['id'])
+                parent_id = ch.get('parent_id')
+                if parent_id:
+                    support_category_ids.add(parent_id)
+
+        for cid in support_category_ids:
+            if cid not in targets:
+                targets.append(cid)
 
         updated = []
         for channel_id in targets:
