@@ -178,48 +178,55 @@ class ForgeBot:
         })
 
     async def set_member_channel_visibility(self):
-        """Ensure Member can see intended public/support channels using live discovery."""
+        """Sync target public channels to their live category overwrites and ensure Member can view."""
         member_role = ROLES['member']
-        view_channel = str(1024)
+        view_channel = 1024
         target_names = {'faq', 'open-ticket', 'platform-status', 'bug-reports', 'daily-highlights'}
 
         channels = await self.api("GET", f"/guilds/{GUILD_ID}/channels")
         if not channels or isinstance(channels, dict):
-            return [('FETCH_CHANNELS', False, channels)]
+            return [('FETCH_CHANNELS', 'guild', False)]
 
+        by_id = {c['id']: c for c in channels}
         targets = []
-        seen = set()
-        support_category_ids = set()
         for ch in channels:
-            name = ch.get('name', '')
-            ch_type = ch.get('type')
-            parent_id = ch.get('parent_id')
-            if ch_type == 4 and name.lower() == 'support':
-                support_category_ids.add(ch['id'])
-                if ch['id'] not in seen:
-                    targets.append((ch['id'], name))
-                    seen.add(ch['id'])
-            elif name.lower() in target_names:
-                if ch['id'] not in seen:
-                    targets.append((ch['id'], name))
-                    seen.add(ch['id'])
-                if parent_id:
-                    support_category_ids.add(parent_id)
-
-        for cid in support_category_ids:
-            if cid not in seen:
-                cat_name = next((c.get('name','unknown') for c in channels if c.get('id') == cid), 'unknown-category')
-                targets.append((cid, cat_name))
-                seen.add(cid)
+            if ch.get('name', '').lower() in target_names:
+                targets.append(ch)
 
         updated = []
-        for channel_id, name in targets:
-            result = await self.api("PUT", f"/channels/{channel_id}/permissions/{member_role}", {
-                "allow": view_channel,
-                "deny": "0",
-                "type": 0
-            })
-            updated.append((name, channel_id, bool(result is not None)))
+        for ch in targets:
+            channel_id = ch['id']
+            channel_name = ch.get('name', channel_id)
+            parent_id = ch.get('parent_id')
+            overwrites = []
+
+            if parent_id and parent_id in by_id:
+                parent = by_id[parent_id]
+                parent_overwrites = parent.get('permission_overwrites', []) or []
+                # copy parent overwrites first
+                overwrites = [dict(ow) for ow in parent_overwrites]
+            else:
+                overwrites = [dict(ow) for ow in (ch.get('permission_overwrites', []) or [])]
+
+            # ensure Member has view access in resulting overwrite set
+            found_member = False
+            for ow in overwrites:
+                if ow.get('id') == member_role and ow.get('type') == 0:
+                    allow = int(ow.get('allow', '0'))
+                    deny = int(ow.get('deny', '0'))
+                    allow |= view_channel
+                    deny &= ~view_channel
+                    ow['allow'] = str(allow)
+                    ow['deny'] = str(deny)
+                    found_member = True
+                    break
+            if not found_member:
+                overwrites.append({'id': member_role, 'type': 0, 'allow': str(view_channel), 'deny': '0'})
+
+            payload = {'permission_overwrites': overwrites}
+            result = await self.api("PATCH", f"/channels/{channel_id}", payload)
+            updated.append((channel_name, channel_id, bool(result is not None)))
+
         return updated
 
     # ============================================================
