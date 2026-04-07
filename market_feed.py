@@ -12,6 +12,7 @@ import os
 
 DISCORD_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 MARKET_WATCH = os.environ.get("DISCORD_MARKET_WATCH_CHANNEL_ID", "1482020924298362912")
+ANNOUNCEMENTS_CHANNEL = os.environ.get("DISCORD_ANNOUNCEMENTS_CHANNEL_ID", "1482020877146263594")
 HEADERS = {"Authorization": f"Bot {DISCORD_TOKEN}", "Content-Type": "application/json"}
 BASE = "https://discord.com/api/v10"
 
@@ -223,7 +224,7 @@ def post_weekly_ahead():
         "footer": {"text": f"Source: ForexFactory | {now.strftime('%d %b %Y')}"},
     }
     
-    return post_discord(MARKET_WATCH, [embed])
+    return post_discord(ANNOUNCEMENTS_CHANNEL, [embed])
 
 
 if __name__ == "__main__":
