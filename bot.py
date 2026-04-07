@@ -737,9 +737,9 @@ class ForgeBot:
             else:
                 msg = f"✅ Updated member visibility on {len(ok)} target(s)."
                 if ok:
-                    msg += " Updated: " + ", \".join(ok[:10])
+                    msg += " Updated: " + ", ".join(ok[:10])
                 if fail:
-                    msg += " Failed: " + ", \".join(fail[:10])
+                    msg += " Failed: " + ", ".join(fail[:10])
             await self.api("POST", f"/channels/{channel_id}/messages", {"content": msg[:1900]})
             await self.log("🛠️ Public channel visibility updated", msg[:1900], 0x2ECC71)
             return
