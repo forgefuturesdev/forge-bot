@@ -184,35 +184,42 @@ class ForgeBot:
         target_names = {'faq', 'open-ticket', 'platform-status', 'bug-reports', 'daily-highlights'}
 
         channels = await self.api("GET", f"/guilds/{GUILD_ID}/channels")
-        if not channels:
-            return []
+        if not channels or isinstance(channels, dict):
+            return [('FETCH_CHANNELS', False, channels)]
 
         targets = []
+        seen = set()
         support_category_ids = set()
         for ch in channels:
             name = ch.get('name', '')
             ch_type = ch.get('type')
+            parent_id = ch.get('parent_id')
             if ch_type == 4 and name.lower() == 'support':
                 support_category_ids.add(ch['id'])
-                targets.append(ch['id'])
+                if ch['id'] not in seen:
+                    targets.append((ch['id'], name))
+                    seen.add(ch['id'])
             elif name.lower() in target_names:
-                targets.append(ch['id'])
-                parent_id = ch.get('parent_id')
+                if ch['id'] not in seen:
+                    targets.append((ch['id'], name))
+                    seen.add(ch['id'])
                 if parent_id:
                     support_category_ids.add(parent_id)
 
         for cid in support_category_ids:
-            if cid not in targets:
-                targets.append(cid)
+            if cid not in seen:
+                cat_name = next((c.get('name','unknown') for c in channels if c.get('id') == cid), 'unknown-category')
+                targets.append((cid, cat_name))
+                seen.add(cid)
 
         updated = []
-        for channel_id in targets:
+        for channel_id, name in targets:
             result = await self.api("PUT", f"/channels/{channel_id}/permissions/{member_role}", {
                 "allow": view_channel,
                 "deny": "0",
                 "type": 0
             })
-            updated.append((channel_id, bool(result is not None)))
+            updated.append((name, channel_id, bool(result is not None)))
         return updated
 
     # ============================================================
@@ -723,13 +730,18 @@ class ForgeBot:
         # --- ADMIN COMMAND: FIX PUBLIC CHANNEL VISIBILITY ---
         if content_lower == '!fixpublicchannels' and member_roles & STAFF_ROLES:
             results = await self.set_member_channel_visibility()
-            ok = [cid for cid, success in results if success]
-            fail = [cid for cid, success in results if not success]
-            msg = f"✅ Updated member visibility on {len(ok)} channel(s)."
-            if fail:
-                msg += f" Failed: {', '.join(fail)}"
-            await self.api("POST", f"/channels/{channel_id}/messages", {"content": msg})
-            await self.log("🛠️ Public channel visibility updated", msg, 0x2ECC71)
+            ok = [f"{name} ({cid})" for name, cid, success in results if success and name != 'FETCH_CHANNELS']
+            fail = [f"{name} ({cid})" for name, cid, success in results if not success and name != 'FETCH_CHANNELS']
+            if results and results[0][0] == 'FETCH_CHANNELS':
+                msg = f"❌ Could not fetch guild channels: {results[0][2]}"
+            else:
+                msg = f"✅ Updated member visibility on {len(ok)} target(s)."
+                if ok:
+                    msg += " Updated: " + ", \".join(ok[:10])
+                if fail:
+                    msg += " Failed: " + ", \".join(fail[:10])
+            await self.api("POST", f"/channels/{channel_id}/messages", {"content": msg[:1900]})
+            await self.log("🛠️ Public channel visibility updated", msg[:1900], 0x2ECC71)
             return
 
         # --- AUTO-RESPONSES ---
