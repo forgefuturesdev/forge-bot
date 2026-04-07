@@ -172,6 +172,31 @@ class ForgeBot:
                        "timestamp": datetime.now(timezone.utc).isoformat()}]
         })
 
+    async def set_member_channel_visibility(self):
+        """Ensure Member can see normal public/support channels."""
+        public_channels = [
+            CHANNELS['faq'],
+            CHANNELS['open_ticket'],
+            CHANNELS['platform_status'],
+            CHANNELS['bug_reports'],
+        ]
+        # daily-highlights may not exist in CHANNELS in this file; patch by known id only if later added.
+        member_role = ROLES['member']
+        updated = []
+        for channel_id in public_channels:
+            result = await self.api("PATCH", f"/channels/{channel_id}", {
+                "permission_overwrites": [
+                    {
+                        "id": member_role,
+                        "type": 0,
+                        "allow": str(1024),
+                        "deny": "0"
+                    }
+                ]
+            })
+            updated.append((channel_id, bool(result is not None)))
+        return updated
+
     # ============================================================
     # REACTION ROLES
     # ============================================================
@@ -677,6 +702,18 @@ class ForgeBot:
                 print(f"  🔒 Ticket closed by {username}")
                 return
         
+        # --- ADMIN COMMAND: FIX PUBLIC CHANNEL VISIBILITY ---
+        if content_lower == '!fixpublicchannels' and member_roles & STAFF_ROLES:
+            results = await self.set_member_channel_visibility()
+            ok = [cid for cid, success in results if success]
+            fail = [cid for cid, success in results if not success]
+            msg = f"✅ Updated member visibility on {len(ok)} channel(s)."
+            if fail:
+                msg += f" Failed: {', '.join(fail)}"
+            await self.api("POST", f"/channels/{channel_id}/messages", {"content": msg})
+            await self.log("🛠️ Public channel visibility updated", msg, 0x2ECC71)
+            return
+
         # --- AUTO-RESPONSES ---
         for trigger, response in AUTO_RESPONSES.items():
             if trigger in content_lower:
