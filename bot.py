@@ -69,6 +69,11 @@ CHANNELS = {
     "mod_logs": "1482021016820777201",
     "mod_chat": "1482021013163348139",
     "rules": "1474405959806881863",
+    "daily_highlights": "1482020877146263594",
+}
+
+CATEGORIES = {
+    "support": "1482020976754448524",
 }
 
 STAFF_ROLES = {ROLES["founder"], ROLES["mod"]}
@@ -173,26 +178,28 @@ class ForgeBot:
         })
 
     async def set_member_channel_visibility(self):
-        """Ensure Member can see normal public/support channels."""
-        public_channels = [
+        """Ensure Member can see intended public/support channels."""
+        member_role = ROLES['member']
+        view_channel = str(1024)
+
+        targets = []
+        if 'CATEGORIES' in globals() and CATEGORIES.get('support'):
+            targets.append(CATEGORIES['support'])
+        targets.extend([
             CHANNELS['faq'],
             CHANNELS['open_ticket'],
             CHANNELS['platform_status'],
             CHANNELS['bug_reports'],
-        ]
-        # daily-highlights may not exist in CHANNELS in this file; patch by known id only if later added.
-        member_role = ROLES['member']
+        ])
+        if CHANNELS.get('daily_highlights'):
+            targets.append(CHANNELS['daily_highlights'])
+
         updated = []
-        for channel_id in public_channels:
-            result = await self.api("PATCH", f"/channels/{channel_id}", {
-                "permission_overwrites": [
-                    {
-                        "id": member_role,
-                        "type": 0,
-                        "allow": str(1024),
-                        "deny": "0"
-                    }
-                ]
+        for channel_id in targets:
+            result = await self.api("PUT", f"/channels/{channel_id}/permissions/{member_role}", {
+                "allow": view_channel,
+                "deny": "0",
+                "type": 0
             })
             updated.append((channel_id, bool(result is not None)))
         return updated
