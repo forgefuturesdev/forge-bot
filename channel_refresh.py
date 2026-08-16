@@ -44,6 +44,10 @@ FORUM_NAME = "forge-education"
 LEGACY_FORUM_NAMES = ("education-hub",)
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets" / "education"
+PUBLIC_ASSET_DIR = Path(__file__).resolve().parent / "assets" / "public-information"
+CHANNEL_ASSETS = {
+    "rules-explained": "rules-explained.png",
+}
 CHANNEL_NAMES = (
     "welcome",
     "faq",
@@ -793,14 +797,36 @@ def find_version_message(channel_id: str) -> str | None:
     return None
 
 
-def post_and_pin(channel_id: str, embeds: list[dict]) -> str:
+def post_and_pin(
+    channel_id: str,
+    embeds: list[dict],
+    asset_name: str | None = None,
+) -> str:
     validate_embeds(embeds)
-    message = expect(
-        request(
+    if asset_name:
+        asset_path = PUBLIC_ASSET_DIR / asset_name
+        payload = {
+            "allowed_mentions": {"parse": []},
+            "embeds": embeds,
+            "attachments": [{"id": 0, "filename": asset_name}],
+        }
+        with asset_path.open("rb") as asset_file:
+            response = request(
+                "POST",
+                f"/channels/{channel_id}/messages",
+                files={
+                    "payload_json": (None, json.dumps(payload), "application/json"),
+                    "files[0]": (asset_name, asset_file, "image/png"),
+                },
+            )
+    else:
+        response = request(
             "POST",
             f"/channels/{channel_id}/messages",
             json_body={"allowed_mentions": {"parse": []}, "embeds": embeds},
-        ),
+        )
+    message = expect(
+        response,
         (200, 201),
         "Current information post",
     )
@@ -815,6 +841,58 @@ def post_and_pin(channel_id: str, embeds: list[dict]) -> str:
         "Current information pin",
     )
     return message_id
+
+
+def refresh_channel_post(
+    channel_id: str,
+    message_id: str,
+    embeds: list[dict],
+    asset_name: str,
+) -> bool:
+    """Refresh one managed pinned post with exactly one artwork attachment."""
+    validate_embeds(embeds)
+    current = expect(
+        request("GET", f"/channels/{channel_id}/messages/{message_id}"),
+        (200,),
+        "Current information artwork inventory",
+    )
+    attachments = current.get("attachments", [])
+    artwork_is_current = (
+        len(attachments) == 1
+        and str(attachments[0].get("filename")) == asset_name
+    )
+    layout_is_current = not any(
+        embed.get("title") and embed.get("image", {}).get("url")
+        for embed in current.get("embeds", [])
+    )
+    copy_is_current = (
+        embed_copy_signature(current.get("embeds", []))
+        == embed_copy_signature(embeds)
+    )
+    if artwork_is_current and layout_is_current and copy_is_current:
+        return False
+
+    asset_path = PUBLIC_ASSET_DIR / asset_name
+    payload = {
+        "allowed_mentions": {"parse": []},
+        "embeds": embeds,
+        "attachments": [{"id": 0, "filename": asset_name}],
+    }
+    with asset_path.open("rb") as asset_file:
+        expect(
+            request(
+                "PATCH",
+                f"/channels/{channel_id}/messages/{message_id}",
+                files={
+                    "payload_json": (None, json.dumps(payload), "application/json"),
+                    "files[0]": (asset_name, asset_file, "image/png"),
+                },
+                reason=f"Refresh {CONTENT_MARKER} channel artwork",
+            ),
+            (200,),
+            "Current information artwork refresh",
+        )
+    return True
 
 
 def desired_forum_payload() -> dict:
@@ -1067,6 +1145,10 @@ def verify_assets() -> None:
         asset_path = ASSET_DIR / guide["asset"]
         if not asset_path.is_file() or asset_path.stat().st_size <= 0:
             raise DiscordError(f"Missing Education asset: {asset_path.name}")
+    for asset_name in CHANNEL_ASSETS.values():
+        asset_path = PUBLIC_ASSET_DIR / asset_name
+        if not asset_path.is_file() or asset_path.stat().st_size <= 0:
+            raise DiscordError(f"Missing public information asset: {asset_path.name}")
 
 
 def plan() -> None:
@@ -1133,9 +1215,24 @@ def apply() -> None:
         channel_id = str(channels[channel_name]["id"])
         existing_message_id = find_version_message(channel_id)
         if existing_message_id:
+            asset_name = CHANNEL_ASSETS.get(channel_name)
+            if asset_name:
+                refreshed = refresh_channel_post(
+                    channel_id,
+                    existing_message_id,
+                    embeds,
+                    asset_name,
+                )
+                action = "REFRESHED" if refreshed else "CHECKED"
+                print(f"{action}: #{channel_name} current artwork ({existing_message_id})")
+                continue
             print(f"SKIP: #{channel_name} already current ({existing_message_id})")
             continue
-        message_id = post_and_pin(channel_id, embeds)
+        message_id = post_and_pin(
+            channel_id,
+            embeds,
+            CHANNEL_ASSETS.get(channel_name),
+        )
         print(f"CREATED: #{channel_name} current pinned post ({message_id})")
 
     print(f"OK: {CONTENT_MARKER} applied without modifying legacy content")
@@ -1173,10 +1270,31 @@ def verify() -> None:
             raise DiscordError(f"Education guide must show exactly one image: {guide['name']}")
         if str(attachments[0].get("filename")) != expected_filename:
             raise DiscordError(f"Education guide artwork is stale: {guide['name']}")
-    for channel_name in build_public_channel_embeds(channels):
+    public_embeds = build_public_channel_embeds(channels)
+    for channel_name, embeds in public_embeds.items():
         channel = channels.get(channel_name)
-        if not channel or not find_version_message(str(channel["id"])):
+        if not channel:
             raise DiscordError(f"Missing current post in #{channel_name}")
+        channel_id = str(channel["id"])
+        message_id = find_version_message(channel_id)
+        if not message_id:
+            raise DiscordError(f"Missing current post in #{channel_name}")
+        asset_name = CHANNEL_ASSETS.get(channel_name)
+        if asset_name:
+            message = expect(
+                request("GET", f"/channels/{channel_id}/messages/{message_id}"),
+                (200,),
+                f"#{channel_name} artwork verification",
+            )
+            attachments = message.get("attachments", [])
+            if (
+                embed_copy_signature(message.get("embeds", []))
+                != embed_copy_signature(embeds)
+                or len(attachments) != 1
+                or str(attachments[0].get("filename")) != asset_name
+                or any(embed.get("image", {}).get("url") for embed in message.get("embeds", []))
+            ):
+                raise DiscordError(f"#{channel_name} artwork is stale or duplicated")
     print("OK: Forge Education, five guides and six current pinned channel posts verified")
 
 

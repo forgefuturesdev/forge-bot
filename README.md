@@ -87,7 +87,8 @@ Blaze avatar without additional text or stamps.
 current pinned posts in Welcome, FAQ, Rules Explained, Promotions, Platform
 Status and Links. The operation preserves legacy messages and channels. Its
 five managed Education guides can be renamed and copy-refreshed in place
-without creating duplicate posts or duplicate artwork.
+without creating duplicate posts or duplicate artwork. Rules Explained also
+maintains one dedicated Forge rules graphic on its existing pinned post.
 
 Run the read-only live plan first:
 
@@ -122,13 +123,14 @@ readable forums:
 Members can read and react, but cannot create or reply to forum posts. The
 upgrade also repairs each Forge Education card so it has exactly one bound
 image. The replaced Resources, Trading Psychology and Risk Management text
-channels are renamed as hidden rollback archives. Their original messages and
-channel settings remain recoverable.
+channels are permanently retired after explicit owner approval; repeated runs
+verify that neither the original nor former archive names remain.
 
 The main bot applies this versioned upgrade once after a fresh gateway
 connection. The operation validates assets and channel identity before making
-changes, verifies both forums before hiding any replaced channel, and remains
-safe to repeat.
+changes, verifies both forums before deleting any retired channel, and remains
+safe to repeat. The retired channels and their messages cannot be restored by
+the rollback command.
 
 Manual controls are available for a read-only plan, verification and rollback:
 
