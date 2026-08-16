@@ -59,6 +59,26 @@ class ChannelRefreshTests(unittest.TestCase):
         for embeds in channel_refresh.build_public_channel_embeds(channels).values():
             channel_refresh.validate_embeds(embeds)
 
+    def test_education_titles_are_clean_public_names(self):
+        guides = channel_refresh.build_education_guides()
+        self.assertEqual(
+            [guide["name"] for guide in guides],
+            [
+                "How Forge Works",
+                "Platform Orders & Positions",
+                "Risk Discipline & Account Guardrails",
+                "Payout Readiness & Limits",
+                "Trader Process: Prepare, Execute, Review, Reset",
+            ],
+        )
+        for guide in guides:
+            rendered = str(guide["embeds"])
+            self.assertNotIn("--", rendered)
+            self.assertNotIn(" -> ", rendered)
+            self.assertNotIn("00-", guide["name"])
+            self.assertNotIn("01-", guide["name"])
+            self.assertNotIn("02-", guide["name"])
+
     def test_current_payout_rules_are_rendered(self):
         guide = next(
             guide
@@ -120,6 +140,7 @@ class ChannelRefreshTests(unittest.TestCase):
             patch.object(channel_refresh, "ensure_forum", return_value=forum),
             patch.object(channel_refresh, "active_and_archived_threads", return_value=thread_names),
             patch.object(channel_refresh, "create_forum_guide") as create_guide,
+            patch.object(channel_refresh, "update_forum_guide") as update_guide,
             patch.object(channel_refresh, "find_version_message", return_value="current"),
             patch.object(channel_refresh, "post_and_pin") as post_and_pin,
             patch.object(channel_refresh, "request") as api_request,
@@ -127,8 +148,63 @@ class ChannelRefreshTests(unittest.TestCase):
             channel_refresh.apply()
 
         create_guide.assert_not_called()
+        self.assertEqual(update_guide.call_count, 5)
         post_and_pin.assert_not_called()
         api_request.assert_not_called()
+
+    def test_legacy_education_titles_are_renamed_without_duplicate_guides(self):
+        channels = [
+            channel(f"id-{name}", name)
+            for name in channel_refresh.CHANNEL_NAMES
+        ]
+        tags = [
+            {"id": str(index), "name": tag}
+            for index, tag in enumerate(
+                ("Start Here", "Platform", "Risk", "Payouts", "Psychology"),
+                start=1,
+            )
+        ]
+        forum = channel(
+            "forum",
+            channel_refresh.FORUM_NAME,
+            channel_type=15,
+            parent_id=channel_refresh.EDUCATION_CATEGORY_ID,
+            topic=channel_refresh.FORUM_TOPIC,
+            tags=tags,
+        )
+        channels.append(forum)
+        legacy_threads = [
+            {
+                "id": str(index),
+                "name": guide["legacy_names"][0],
+                "parent_id": "forum",
+            }
+            for index, guide in enumerate(channel_refresh.build_education_guides(), start=1)
+        ]
+
+        with (
+            patch.object(channel_refresh, "get_guild_channels", return_value=channels),
+            patch.object(channel_refresh, "ensure_forum", return_value=forum),
+            patch.object(channel_refresh, "active_and_archived_threads", return_value=legacy_threads),
+            patch.object(channel_refresh, "create_forum_guide") as create_guide,
+            patch.object(channel_refresh, "update_forum_guide") as update_guide,
+            patch.object(channel_refresh, "find_version_message", return_value="current"),
+            patch.object(channel_refresh, "post_and_pin"),
+        ):
+            channel_refresh.apply()
+
+        create_guide.assert_not_called()
+        renamed_pairs = {
+            (call.args[0]["name"], call.args[1]["name"])
+            for call in update_guide.call_args_list
+        }
+        self.assertEqual(
+            renamed_pairs,
+            {
+                (guide["legacy_names"][0], guide["name"])
+                for guide in channel_refresh.build_education_guides()
+            },
+        )
 
 
 if __name__ == "__main__":

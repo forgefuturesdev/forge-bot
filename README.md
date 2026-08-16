@@ -85,8 +85,9 @@ Blaze avatar without additional text or stamps.
 
 `channel_refresh.py` manages a versioned, information-only Education forum plus
 current pinned posts in Welcome, FAQ, Rules Explained, Promotions, Platform
-Status and Links. The operation is additive: legacy messages and channels are
-not deleted, renamed or hidden.
+Status and Links. The operation preserves legacy messages and channels. Its
+five managed Education guides can be renamed and copy-refreshed in place
+without creating duplicates.
 
 Run the read-only live plan first:
 

@@ -174,46 +174,47 @@ def mention(channels: dict[str, dict], name: str) -> str:
 def build_education_guides() -> list[dict]:
     return [
         {
-            "name": "00-start-here-how-forge-works",
+            "name": "How Forge Works",
+            "legacy_names": ("00-start-here-how-forge-works",),
             "tag": "Start Here",
             "asset": "education-hub.png",
             "embeds": [
                 public_embed(
-                    "START HERE | HOW FORGE WORKS",
+                    "How Forge Works",
                     (
-                        "Forge Futures is a simulated futures evaluation and qualified-account "
-                        "platform. No live brokerage account or real exchange order is created. "
-                        "Use this hub as the current quick-reference layer; the website rules "
-                        "and checkout remain authoritative."
+                        "Forge Futures provides simulated futures evaluations and qualified "
+                        "accounts. Orders are not sent to a live brokerage account or exchange. "
+                        "Use this guide for the basics, then check the website rules and checkout "
+                        "for the latest details."
                     ),
                     section="EDUCATION",
                     image_name="education-hub.png",
                     fields=[
                         {
-                            "name": "THE ACCOUNT JOURNEY",
+                            "name": "Account Journey",
                             "value": (
-                                "1. Choose Zero, Standard or Advanced.\n"
-                                "2. Trade the simulated evaluation within its rules.\n"
-                                "3. Pass the checks and complete KYC where required.\n"
-                                "4. Trade a simulated qualified account and request eligible payouts."
+                                "• Choose a Zero, Standard or Advanced evaluation.\n"
+                                "• Trade the simulated account within its rules.\n"
+                                "• Meet the pass conditions and complete KYC when required.\n"
+                                "• Trade a simulated qualified account and request eligible payouts."
                             ),
                             "inline": False,
                         },
                         {
-                            "name": "SUPPORTED CONTRACTS",
+                            "name": "Supported Contracts",
                             "value": "ES, NQ, MES and MNQ.",
                             "inline": True,
                         },
                         {
-                            "name": "CORE LIMITS",
+                            "name": "Account Limits",
                             "value": (
-                                "Up to five qualified accounts per tier. Make at least one trade "
-                                "within every 10 trading days to remain active."
+                                "You can hold up to five qualified accounts per tier. Make at least "
+                                "one trade every 10 trading days to keep each account active."
                             ),
                             "inline": True,
                         },
                         {
-                            "name": "QUICK LINKS",
+                            "name": "Quick Links",
                             "value": (
                                 f"[Plans]({FORGE_SITE_URL}/plans) | "
                                 f"[Rules]({FORGE_SITE_URL}/rules) | "
@@ -226,37 +227,39 @@ def build_education_guides() -> list[dict]:
             ],
         },
         {
-            "name": "01-platform-orders-and-positions",
+            "name": "Platform Orders & Positions",
+            "legacy_names": ("01-platform-orders-and-positions",),
             "tag": "Platform",
             "asset": "platform-execution.png",
             "embeds": [
                 public_embed(
-                    "PLATFORM | ORDERS, POSITIONS AND CONTROLS",
+                    "Platform Orders & Positions",
                     (
-                        "Treat every action as an instruction with a defined entry, size and exit. "
-                        "Confirm the selected account and contract before submitting an order."
+                        "Before placing an order, confirm the account, contract, side, order type, "
+                        "quantity and intended risk."
                     ),
                     section="EDUCATION",
                     image_name="platform-execution.png",
                     fields=[
                         {
-                            "name": "MARKET ORDER",
+                            "name": "Market Orders",
                             "value": (
-                                "Requests the next available simulated fill. It prioritises execution, "
-                                "not a specific price."
+                                "A market order requests the next available simulated fill. It "
+                                "prioritises execution rather than a specific price."
                             ),
                             "inline": True,
                         },
                         {
-                            "name": "LIMIT / STOP ORDER",
+                            "name": "Limit & Stop Orders",
                             "value": (
-                                "A limit waits for its price or better. A stop activates only after "
-                                "the trigger is reached. Check working orders after submission."
+                                "A limit order waits for its selected price or better. A stop order "
+                                "activates after its trigger price is reached. Check all working "
+                                "orders after submission."
                             ),
                             "inline": True,
                         },
                         {
-                            "name": "BEFORE YOU SEND",
+                            "name": "Before Sending",
                             "value": (
                                 "Check account, symbol, side, order type, quantity and intended risk. "
                                 "Hotkeys are shortcuts, not a substitute for those checks."
@@ -264,7 +267,7 @@ def build_education_guides() -> list[dict]:
                             "inline": False,
                         },
                         {
-                            "name": "AFTER YOU SEND",
+                            "name": "After Sending",
                             "value": (
                                 "Confirm the order state, verify the resulting position and use the "
                                 "platform controls to reduce or close risk deliberately."
@@ -276,21 +279,22 @@ def build_education_guides() -> list[dict]:
             ],
         },
         {
-            "name": "02-risk-discipline-and-account-guardrails",
+            "name": "Risk Discipline & Account Guardrails",
+            "legacy_names": ("02-risk-discipline-and-account-guardrails",),
             "tag": "Risk",
             "asset": "risk-discipline.png",
             "embeds": [
                 public_embed(
-                    "RISK | DISCIPLINE BEFORE SIZE",
+                    "Risk Discipline & Account Guardrails",
                     (
-                        "Account rules are hard boundaries, not targets. Build a personal stop point "
-                        "inside the published limit so one trade or session cannot consume the account."
+                        "Account rules are limits, not targets. Set a personal stop inside the "
+                        "published limit so one trade or session cannot breach the account."
                     ),
                     section="EDUCATION",
                     image_name="risk-discipline.png",
                     fields=[
                         {
-                            "name": "ZERO",
+                            "name": "Zero",
                             "value": (
                                 "25K: $1,000 drawdown / $500 daily guard\n"
                                 "50K: $2,000 drawdown / $1,000 daily guard\n"
@@ -299,7 +303,7 @@ def build_education_guides() -> list[dict]:
                             "inline": True,
                         },
                         {
-                            "name": "STANDARD",
+                            "name": "Standard",
                             "value": (
                                 "50K: $2,000 drawdown\n"
                                 "100K: $3,000 drawdown\n"
@@ -309,7 +313,7 @@ def build_education_guides() -> list[dict]:
                             "inline": True,
                         },
                         {
-                            "name": "ADVANCED",
+                            "name": "Advanced",
                             "value": (
                                 "50K: $1,750 drawdown\n"
                                 "100K: $3,500 drawdown\n"
@@ -319,10 +323,11 @@ def build_education_guides() -> list[dict]:
                             "inline": True,
                         },
                         {
-                            "name": "A REPEATABLE SESSION",
+                            "name": "A Consistent Session",
                             "value": (
-                                "Set risk first -> verify news and session conditions -> execute only "
-                                "the planned setup -> stop at the personal limit -> journal the result."
+                                "Set your risk before the session. Check scheduled news and market "
+                                "conditions. Take only planned setups. Stop at your personal limit "
+                                "and journal the result."
                             ),
                             "inline": False,
                         },
@@ -331,27 +336,28 @@ def build_education_guides() -> list[dict]:
             ],
         },
         {
-            "name": "03-payout-readiness-and-limits",
+            "name": "Payout Readiness & Limits",
+            "legacy_names": ("03-payout-readiness-and-limits",),
             "tag": "Payouts",
             "asset": "payout-readiness.png",
             "embeds": [
                 public_embed(
-                    "PAYOUTS | READINESS AND LIMITS",
+                    "Payout Readiness & Limits",
                     (
-                        "A qualified account needs five winning days of at least $200 net profit each. "
+                        "A qualified account needs five winning days with at least $200 net profit each. "
                         "Every request is limited to the lower of 50% of eligible account profit and "
-                        "the applicable plan cap. The requested amount is deducted when paid."
+                        "the applicable plan cap. The payout amount is deducted from the account when paid."
                     ),
                     section="EDUCATION",
                     image_name="payout-readiness.png",
                     fields=[
                         {
-                            "name": "MINIMUM REQUEST",
+                            "name": "Minimum Request",
                             "value": "Zero $200 | Standard $500 | Advanced $1,000",
                             "inline": False,
                         },
                         {
-                            "name": "FREQUENCY / SPLIT",
+                            "name": "Frequency & Profit Split",
                             "value": (
                                 "Zero monthly | Standard bi-weekly | Advanced weekly\n"
                                 "All tiers: trader receives 90% of the approved amount."
@@ -359,24 +365,32 @@ def build_education_guides() -> list[dict]:
                             "inline": False,
                         },
                         {
-                            "name": "ZERO CAPS",
+                            "name": "Zero Payout Caps",
                             "value": "25K $1,000 | 50K $1,500 | 100K $2,500",
                             "inline": False,
                         },
                         {
-                            "name": "STANDARD LADDER (PAID PAYOUT COUNT)",
+                            "name": "Standard Payout Ladder",
                             "value": (
-                                "50K: $2,000 -> $2,250 -> $2,500 -> $3,000 -> $4,000\n"
-                                "100K: $2,500 -> $3,000 -> $3,500 -> $4,000 -> $5,000\n"
-                                "150K: $3,000 -> $3,500 -> $4,000 -> $5,000 -> $6,000"
+                                "Caps rise after each paid payout.\n"
+                                "50K: $2,000, $2,250, $2,500, $3,000, then $4,000\n"
+                                "100K: $2,500, $3,000, $3,500, $4,000, then $5,000\n"
+                                "150K: $3,000, $3,500, $4,000, $5,000, then $6,000"
                             ),
                             "inline": False,
                         },
                         {
-                            "name": "ADVANCED CAP / PROCESSING",
+                            "name": "Advanced Payout Cap",
                             "value": (
-                                "$15,000 per request for every Advanced size. Forge aims to review "
-                                "and process requests within 24 hours; bank arrival time may vary."
+                                "$15,000 per request for every Advanced account size."
+                            ),
+                            "inline": False,
+                        },
+                        {
+                            "name": "Processing Target",
+                            "value": (
+                                "Forge aims to review and process payout requests within 24 hours. "
+                                "Arrival time after processing depends on the payment method and bank."
                             ),
                             "inline": False,
                         },
@@ -385,36 +399,37 @@ def build_education_guides() -> list[dict]:
             ],
         },
         {
-            "name": "04-trader-process-prepare-execute-review-reset",
+            "name": "Trader Process: Prepare, Execute, Review, Reset",
+            "legacy_names": ("04-trader-process-prepare-execute-review-reset",),
             "tag": "Psychology",
             "asset": "trader-process.png",
             "embeds": [
                 public_embed(
-                    "TRADER PROCESS | PREPARE, EXECUTE, REVIEW, RESET",
+                    "Trader Process: Prepare, Execute, Review, Reset",
                     (
-                        "Consistency comes from a repeatable process, not from forcing a daily result. "
-                        "Use the same short loop before and after every session."
+                        "Consistency comes from following a process, not forcing a daily result. "
+                        "Use the same routine before, during and after every session."
                     ),
                     section="EDUCATION",
                     image_name="trader-process.png",
                     fields=[
                         {
-                            "name": "PREPARE",
+                            "name": "Prepare",
                             "value": "Define the session window, key events, setup and maximum personal risk.",
                             "inline": True,
                         },
                         {
-                            "name": "EXECUTE",
+                            "name": "Execute",
                             "value": "Trade only the planned conditions and verify every order after sending it.",
                             "inline": True,
                         },
                         {
-                            "name": "REVIEW",
+                            "name": "Review",
                             "value": "Record the decision, execution quality and whether the plan was followed.",
                             "inline": True,
                         },
                         {
-                            "name": "RESET",
+                            "name": "Reset",
                             "value": (
                                 "Close the session mentally. Do not increase size to recover a loss or "
                                 "manufacture a qualifying day."
@@ -900,6 +915,85 @@ def create_forum_guide(forum: dict, guide: dict) -> str:
     return str(result["id"])
 
 
+def find_guide_thread(existing_threads: dict[str, dict], guide: dict) -> dict | None:
+    thread = existing_threads.get(guide["name"])
+    if thread:
+        return thread
+    for legacy_name in guide.get("legacy_names", ()):
+        thread = existing_threads.get(legacy_name)
+        if thread:
+            return thread
+    return None
+
+
+def embed_copy_signature(embeds: Iterable[dict]) -> list[dict]:
+    """Return only the public copy fields that Discord preserves verbatim."""
+    return [
+        {
+            "title": embed.get("title"),
+            "description": embed.get("description"),
+            "fields": [
+                {
+                    "name": field.get("name"),
+                    "value": field.get("value"),
+                    "inline": bool(field.get("inline", False)),
+                }
+                for field in embed.get("fields", [])
+            ],
+        }
+        for embed in embeds
+    ]
+
+
+def update_forum_guide(thread: dict, guide: dict) -> None:
+    """Rename and refresh one managed guide without replacing its artwork."""
+    thread_id = str(thread["id"])
+    current_message = expect(
+        request("GET", f"/channels/{thread_id}/messages/{thread_id}"),
+        (200,),
+        f"Education guide inventory {guide['name']}",
+    )
+    desired_embeds = json.loads(json.dumps(guide["embeds"]))
+    current_embeds = current_message.get("embeds", [])
+    for index, desired_embed in enumerate(desired_embeds):
+        if not desired_embed.get("image"):
+            continue
+        current_image_url = (
+            current_embeds[index].get("image", {}).get("url")
+            if index < len(current_embeds)
+            else None
+        )
+        if not current_image_url:
+            raise DiscordError(f"Education guide artwork is missing: {guide['name']}")
+        desired_embed["image"] = {"url": current_image_url}
+
+    if str(thread.get("name")) != guide["name"]:
+        expect(
+            request(
+                "PATCH",
+                f"/channels/{thread_id}",
+                json_body={"name": guide["name"]},
+                reason=f"Rename {CONTENT_MARKER} Education guide",
+            ),
+            (200,),
+            f"Education guide rename {guide['name']}",
+        )
+
+    if embed_copy_signature(current_embeds) != embed_copy_signature(desired_embeds):
+        expect(
+            request(
+                "PATCH",
+                f"/channels/{thread_id}/messages/{thread_id}",
+                json_body={
+                    "allowed_mentions": {"parse": []},
+                    "embeds": desired_embeds,
+                },
+            ),
+            (200,),
+            f"Education guide copy update {guide['name']}",
+        )
+
+
 def verify_assets() -> None:
     for guide in build_education_guides():
         asset_path = ASSET_DIR / guide["asset"]
@@ -915,10 +1009,21 @@ def plan() -> None:
         raise DiscordError(f"Missing required channels: {', '.join(missing)}")
     forum = channels.get(FORUM_NAME)
     forum_state = "exists" if forum else "will be created"
+    existing_threads = {
+        str(thread.get("name")): thread
+        for thread in active_and_archived_threads(str(forum["id"]))
+    } if forum else {}
     print(f"OK: guild {GUILD_ID}")
     print(f"PLAN: #{FORUM_NAME} {forum_state} under Education")
     for guide in build_education_guides():
-        print(f"PLAN: forum guide {guide['name']} [{guide['tag']}]")
+        thread = find_guide_thread(existing_threads, guide)
+        if not thread:
+            state = "will be created"
+        elif str(thread.get("name")) != guide["name"]:
+            state = f"will be renamed from {thread.get('name')} and refreshed"
+        else:
+            state = "will be checked and refreshed if needed"
+        print(f"PLAN: forum guide {guide['name']} [{guide['tag']}] {state}")
     for channel_name in build_public_channel_embeds(channels):
         channel_id = str(channels[channel_name]["id"])
         state = "already current" if find_version_message(channel_id) else "will receive a pinned current post"
@@ -941,8 +1046,14 @@ def apply() -> None:
     }
     # Create in reverse so Start Here is the most recent item in gallery view.
     for guide in reversed(build_education_guides()):
-        if guide["name"] in existing_threads:
-            print(f"SKIP: forum guide already exists: {guide['name']}")
+        thread = find_guide_thread(existing_threads, guide)
+        if thread:
+            old_name = str(thread.get("name"))
+            update_forum_guide(thread, guide)
+            if old_name == guide["name"]:
+                print(f"CHECKED: forum guide {guide['name']}")
+            else:
+                print(f"RENAMED: forum guide {old_name} -> {guide['name']}")
             continue
         thread_id = create_forum_guide(forum, guide)
         print(f"CREATED: forum guide {guide['name']} ({thread_id})")
@@ -964,10 +1075,24 @@ def verify() -> None:
     forum = channels.get(FORUM_NAME)
     if not forum or CONTENT_MARKER not in str(forum.get("topic") or ""):
         raise DiscordError("Managed Education forum is missing")
-    threads = {str(thread.get("name")) for thread in active_and_archived_threads(str(forum["id"]))}
+    threads = {
+        str(thread.get("name")): thread
+        for thread in active_and_archived_threads(str(forum["id"]))
+    }
     missing_threads = [guide["name"] for guide in build_education_guides() if guide["name"] not in threads]
     if missing_threads:
         raise DiscordError(f"Missing Education guides: {', '.join(missing_threads)}")
+    for guide in build_education_guides():
+        thread_id = str(threads[guide["name"]]["id"])
+        message = expect(
+            request("GET", f"/channels/{thread_id}/messages/{thread_id}"),
+            (200,),
+            f"Education guide verification {guide['name']}",
+        )
+        if embed_copy_signature(message.get("embeds", [])) != embed_copy_signature(guide["embeds"]):
+            raise DiscordError(f"Education guide copy is stale: {guide['name']}")
+        if not any(embed.get("image", {}).get("url") for embed in message.get("embeds", [])):
+            raise DiscordError(f"Education guide artwork is missing: {guide['name']}")
     for channel_name in build_public_channel_embeds(channels):
         channel = channels.get(channel_name)
         if not channel or not find_version_message(str(channel["id"])):
