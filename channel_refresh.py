@@ -38,9 +38,10 @@ EDUCATION_CATEGORY_ID = os.environ.get(
 CONTENT_VERSION = "2026.08.16"
 CONTENT_MARKER = f"Forge public information | v{CONTENT_VERSION}"
 FORUM_TOPIC = (
-    f"{CONTENT_MARKER} | Structured, information-only Forge Futures education."
+    f"{CONTENT_MARKER} | Platform rules and account guidance from Forge Futures."
 )
-FORUM_NAME = "education-hub"
+FORUM_NAME = "forge-education"
+LEGACY_FORUM_NAMES = ("education-hub",)
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets" / "education"
 CHANNEL_NAMES = (
@@ -844,11 +845,27 @@ def desired_forum_payload() -> dict:
 
 def ensure_forum(channels: dict[str, dict]) -> dict:
     existing = channels.get(FORUM_NAME)
+    if not existing:
+        existing = next(
+            (channels.get(name) for name in LEGACY_FORUM_NAMES if channels.get(name)),
+            None,
+        )
     if existing:
         if existing.get("type") != 15 or existing.get("parent_id") != EDUCATION_CATEGORY_ID:
-            raise DiscordError("education-hub exists but is not the managed Education forum")
+            raise DiscordError("Existing Forge Education channel has an unexpected type or category")
         if CONTENT_MARKER not in str(existing.get("topic") or ""):
-            raise DiscordError("education-hub exists without the managed content marker")
+            raise DiscordError("Existing Forge Education channel is missing its managed marker")
+        if existing.get("name") != FORUM_NAME or existing.get("topic") != FORUM_TOPIC:
+            existing = expect(
+                request(
+                    "PATCH",
+                    f"/channels/{existing['id']}",
+                    json_body={"name": FORUM_NAME, "topic": FORUM_TOPIC},
+                    reason=f"Rename {CONTENT_MARKER} forum to Forge Education",
+                ),
+                (200,),
+                "Forge Education forum rename",
+            )
         return existing
     return expect(
         request(
@@ -876,11 +893,32 @@ def active_and_archived_threads(forum_id: str) -> list[dict]:
     return [thread for thread in active + archived if thread.get("parent_id") == forum_id]
 
 
-def create_forum_guide(forum: dict, guide: dict) -> str:
-    asset_path = ASSET_DIR / guide["asset"]
+def guide_attachment_name(guide: dict, prefix: str = "forge-education") -> str:
+    return str(guide.get("attachment_name") or f"{prefix}-{guide['asset']}")
+
+
+def embeds_for_attachment(guide: dict, attachment_name: str) -> list[dict]:
+    embeds = json.loads(json.dumps(guide["embeds"]))
+    for embed in embeds:
+        if embed.get("image"):
+            embed["image"] = {"url": f"attachment://{attachment_name}"}
+    return embeds
+
+
+def create_forum_guide(
+    forum: dict,
+    guide: dict,
+    *,
+    asset_dir: Path = ASSET_DIR,
+    attachment_prefix: str = "forge-education",
+    label: str = "Education",
+) -> str:
+    asset_path = asset_dir / guide["asset"]
     if not asset_path.is_file():
-        raise DiscordError(f"Missing Education asset: {asset_path.name}")
+        raise DiscordError(f"Missing {label} asset: {asset_path.name}")
     validate_embeds(guide["embeds"])
+    attachment_name = guide_attachment_name(guide, attachment_prefix)
+    desired_embeds = embeds_for_attachment(guide, attachment_name)
     tag_ids = {
         str(tag.get("name")): str(tag.get("id"))
         for tag in forum.get("available_tags", [])
@@ -894,8 +932,8 @@ def create_forum_guide(forum: dict, guide: dict) -> str:
         "applied_tags": [tag_id],
         "message": {
             "allowed_mentions": {"parse": []},
-            "embeds": guide["embeds"],
-            "attachments": [{"id": 0, "filename": asset_path.name}],
+            "embeds": desired_embeds,
+            "attachments": [{"id": 0, "filename": attachment_name}],
         },
     }
     with asset_path.open("rb") as asset_file:
@@ -905,12 +943,12 @@ def create_forum_guide(forum: dict, guide: dict) -> str:
                 f"/channels/{forum['id']}/threads",
                 files={
                     "payload_json": (None, json.dumps(payload), "application/json"),
-                    "files[0]": (asset_path.name, asset_file, "image/png"),
+                    "files[0]": (attachment_name, asset_file, "image/png"),
                 },
                 reason=f"Publish {CONTENT_MARKER} Education guide",
             ),
             (200, 201),
-            f"Education guide {guide['name']}",
+            f"{label} guide {guide['name']}",
         )
     return str(result["id"])
 
@@ -945,27 +983,32 @@ def embed_copy_signature(embeds: Iterable[dict]) -> list[dict]:
     ]
 
 
-def update_forum_guide(thread: dict, guide: dict) -> None:
-    """Rename and refresh one managed guide without replacing its artwork."""
+def update_forum_guide(
+    thread: dict,
+    guide: dict,
+    *,
+    asset_dir: Path = ASSET_DIR,
+    attachment_prefix: str = "forge-education",
+    label: str = "Education",
+) -> None:
+    """Rename and refresh one managed guide with exactly one bound artwork file."""
     thread_id = str(thread["id"])
     current_message = expect(
         request("GET", f"/channels/{thread_id}/messages/{thread_id}"),
         (200,),
-        f"Education guide inventory {guide['name']}",
+        f"{label} guide inventory {guide['name']}",
     )
-    desired_embeds = json.loads(json.dumps(guide["embeds"]))
+    asset_path = asset_dir / guide["asset"]
+    if not asset_path.is_file():
+        raise DiscordError(f"Missing {label} asset: {asset_path.name}")
+    attachment_name = guide_attachment_name(guide, attachment_prefix)
+    desired_embeds = embeds_for_attachment(guide, attachment_name)
     current_embeds = current_message.get("embeds", [])
-    for index, desired_embed in enumerate(desired_embeds):
-        if not desired_embed.get("image"):
-            continue
-        current_image_url = (
-            current_embeds[index].get("image", {}).get("url")
-            if index < len(current_embeds)
-            else None
-        )
-        if not current_image_url:
-            raise DiscordError(f"Education guide artwork is missing: {guide['name']}")
-        desired_embed["image"] = {"url": current_image_url}
+    current_attachments = current_message.get("attachments", [])
+    artwork_is_current = (
+        len(current_attachments) == 1
+        and str(current_attachments[0].get("filename")) == attachment_name
+    )
 
     if str(thread.get("name")) != guide["name"]:
         expect(
@@ -976,22 +1019,30 @@ def update_forum_guide(thread: dict, guide: dict) -> None:
                 reason=f"Rename {CONTENT_MARKER} Education guide",
             ),
             (200,),
-            f"Education guide rename {guide['name']}",
+            f"{label} guide rename {guide['name']}",
         )
 
-    if embed_copy_signature(current_embeds) != embed_copy_signature(desired_embeds):
-        expect(
-            request(
-                "PATCH",
-                f"/channels/{thread_id}/messages/{thread_id}",
-                json_body={
-                    "allowed_mentions": {"parse": []},
-                    "embeds": desired_embeds,
-                },
-            ),
-            (200,),
-            f"Education guide copy update {guide['name']}",
-        )
+    copy_is_current = embed_copy_signature(current_embeds) == embed_copy_signature(desired_embeds)
+    if not copy_is_current or not artwork_is_current:
+        payload = {
+            "allowed_mentions": {"parse": []},
+            "embeds": desired_embeds,
+            "attachments": [{"id": 0, "filename": attachment_name}],
+        }
+        with asset_path.open("rb") as asset_file:
+            expect(
+                request(
+                    "PATCH",
+                    f"/channels/{thread_id}/messages/{thread_id}",
+                    files={
+                        "payload_json": (None, json.dumps(payload), "application/json"),
+                        "files[0]": (attachment_name, asset_file, "image/png"),
+                    },
+                    reason=f"Refresh {CONTENT_MARKER} {label} guide",
+                ),
+                (200,),
+                f"{label} guide update {guide['name']}",
+            )
 
 
 def verify_assets() -> None:
@@ -1007,7 +1058,10 @@ def plan() -> None:
     missing = [name for name in CHANNEL_NAMES if name not in channels]
     if missing:
         raise DiscordError(f"Missing required channels: {', '.join(missing)}")
-    forum = channels.get(FORUM_NAME)
+    forum = channels.get(FORUM_NAME) or next(
+        (channels.get(name) for name in LEGACY_FORUM_NAMES if channels.get(name)),
+        None,
+    )
     forum_state = "exists" if forum else "will be created"
     existing_threads = {
         str(thread.get("name")): thread
@@ -1091,13 +1145,22 @@ def verify() -> None:
         )
         if embed_copy_signature(message.get("embeds", [])) != embed_copy_signature(guide["embeds"]):
             raise DiscordError(f"Education guide copy is stale: {guide['name']}")
-        if not any(embed.get("image", {}).get("url") for embed in message.get("embeds", [])):
-            raise DiscordError(f"Education guide artwork is missing: {guide['name']}")
+        image_embeds = [
+            embed
+            for embed in message.get("embeds", [])
+            if embed.get("image", {}).get("url")
+        ]
+        attachments = message.get("attachments", [])
+        expected_filename = guide_attachment_name(guide)
+        if len(image_embeds) != 1 or len(attachments) != 1:
+            raise DiscordError(f"Education guide must show exactly one image: {guide['name']}")
+        if str(attachments[0].get("filename")) != expected_filename:
+            raise DiscordError(f"Education guide artwork is stale: {guide['name']}")
     for channel_name in build_public_channel_embeds(channels):
         channel = channels.get(channel_name)
         if not channel or not find_version_message(str(channel["id"])):
             raise DiscordError(f"Missing current post in #{channel_name}")
-    print("OK: Education hub, five guides and six current pinned channel posts verified")
+    print("OK: Forge Education, five guides and six current pinned channel posts verified")
 
 
 def rollback() -> None:

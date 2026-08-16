@@ -1,9 +1,25 @@
 import os
+from types import SimpleNamespace
+import sys
+import types
 import unittest
 from unittest.mock import AsyncMock
 
 os.environ.setdefault("DISCORD_BOT_TOKEN", "test-token")
 os.environ.setdefault("DISCORD_GUILD_ID", "forge-guild")
+
+aiohttp_stub = types.ModuleType("aiohttp")
+aiohttp_stub.ClientSession = object
+aiohttp_stub.WSMsgType = SimpleNamespace(TEXT="TEXT")
+sys.modules.setdefault("aiohttp", aiohttp_stub)
+
+requests_stub = types.ModuleType("requests")
+requests_stub.RequestException = Exception
+requests_stub.Response = SimpleNamespace
+requests_stub.request = lambda *args, **kwargs: None
+requests_stub.get = lambda *args, **kwargs: None
+requests_stub.post = lambda *args, **kwargs: None
+sys.modules.setdefault("requests", requests_stub)
 
 import bot
 

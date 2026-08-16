@@ -25,7 +25,7 @@ class SupplyChainTests(unittest.TestCase):
     def test_education_assets_are_packaged_in_runtime_image(self):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
-        self.assertIn("COPY assets/education/ ./assets/education/", dockerfile)
+        self.assertIn("COPY assets/ ./assets/", dockerfile)
 
 
 if __name__ == "__main__":
