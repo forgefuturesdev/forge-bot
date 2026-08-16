@@ -33,6 +33,17 @@ def channel(channel_id, name, channel_type=0, parent_id=None, topic=None, tags=N
 
 
 class ChannelRefreshTests(unittest.TestCase):
+    def test_emoji_decorated_channel_names_resolve_by_stable_suffix(self):
+        indexed = channel_refresh.index_channels([
+            channel("faq-id", "❓┃faq"),
+            channel("status-id", "⚡┃platform-status"),
+            channel("plain-id", "links"),
+        ])
+
+        self.assertEqual(indexed["faq"]["id"], "faq-id")
+        self.assertEqual(indexed["platform-status"]["id"], "status-id")
+        self.assertEqual(indexed["links"]["id"], "plain-id")
+
     def test_all_content_fits_discord_limits_and_assets_exist(self):
         channels = {
             name: channel(f"id-{name}", name)

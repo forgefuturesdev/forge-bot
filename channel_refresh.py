@@ -724,8 +724,32 @@ def get_guild_channels() -> list[dict]:
     )
 
 
+def channel_key(value: object) -> str:
+    """Return the stable suffix used by Forge's emoji-decorated channels."""
+    name = str(value or "").strip()
+    if "┃" in name:
+        name = name.rsplit("┃", 1)[1]
+    return name.strip().casefold()
+
+
 def index_channels(channel_list: list[dict]) -> dict[str, dict]:
-    return {str(channel.get("name")): channel for channel in channel_list}
+    indexed = {str(channel.get("name")): channel for channel in channel_list}
+    aliases: dict[str, dict] = {}
+    collisions: set[str] = set()
+    for channel in channel_list:
+        alias = channel_key(channel.get("name"))
+        if not alias:
+            continue
+        if alias in aliases and aliases[alias].get("id") != channel.get("id"):
+            collisions.add(alias)
+            continue
+        aliases[alias] = channel
+    indexed.update(
+        (alias, channel)
+        for alias, channel in aliases.items()
+        if alias not in collisions
+    )
+    return indexed
 
 
 def find_version_message(channel_id: str) -> str | None:
