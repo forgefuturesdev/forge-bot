@@ -127,10 +127,10 @@ channels are permanently retired after explicit owner approval; repeated runs
 verify that neither the original nor former archive names remain.
 
 The main bot applies this versioned upgrade once after a fresh gateway
-connection. The operation validates assets and channel identity before making
-changes, verifies both forums before deleting any retired channel, and remains
-safe to repeat. The retired channels and their messages cannot be restored by
-the rollback command.
+connection. The same startup release first checks the managed public posts and
+refreshes the Rules Explained artwork in place. It then validates both forums
+before deleting any retired channel and remains safe to repeat. The retired
+channels and their messages cannot be restored by the rollback command.
 
 Manual controls are available for a read-only plan, verification and rollback:
 

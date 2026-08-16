@@ -834,6 +834,9 @@ def plan() -> None:
 
 
 def apply() -> None:
+    # Keep the public information posts, including Rules Explained artwork,
+    # on the same verified startup release as the Education forums.
+    public_info.apply()
     verify_assets()
     channels = public_info.index_channels(public_info.get_guild_channels())
     validate_existing_forums(channels)
@@ -865,6 +868,7 @@ def apply() -> None:
 
 
 def verify() -> None:
+    public_info.verify()
     verify_assets()
     verify_forums()
     verify_deleted_channels()

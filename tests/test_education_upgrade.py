@@ -187,6 +187,7 @@ class EducationUpgradeTests(unittest.TestCase):
         trading_forum = {"id": "trading-forum"}
 
         with (
+            patch.object(channel_refresh, "apply", side_effect=lambda: events.append("public-info")),
             patch.object(education_upgrade, "verify_assets", side_effect=lambda: events.append("assets")),
             patch.object(channel_refresh, "get_guild_channels", return_value=[]),
             patch.object(channel_refresh, "index_channels", return_value={}),
@@ -201,6 +202,7 @@ class EducationUpgradeTests(unittest.TestCase):
         ):
             education_upgrade.apply()
 
+        self.assertLess(events.index("public-info"), events.index("verify-forums"))
         self.assertLess(events.index("verify-forums"), events.index("delete"))
         self.assertLess(events.index("delete"), events.index("verify-deleted"))
 
