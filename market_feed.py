@@ -207,7 +207,10 @@ def post_weekly_ahead():
                 continue
     
     if not high_impact:
-        text = "No high-impact USD events this week. Clear to trade ✅"
+        text = (
+            "The current feed returned no high-impact USD events for this week. "
+            "Check the official economic calendar before trading because feeds can be delayed or incomplete."
+        )
     else:
         text = ""
         for e in high_impact:
