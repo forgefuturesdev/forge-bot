@@ -83,11 +83,11 @@ Blaze avatar without additional text or stamps.
 
 ## Public information and Education refresh
 
-`channel_refresh.py` manages a versioned, information-only Education forum plus
+`channel_refresh.py` manages the versioned, information-only Forge Education forum plus
 current pinned posts in Welcome, FAQ, Rules Explained, Promotions, Platform
 Status and Links. The operation preserves legacy messages and channels. Its
 five managed Education guides can be renamed and copy-refreshed in place
-without creating duplicates.
+without creating duplicate posts or duplicate artwork.
 
 Run the read-only live plan first:
 
@@ -107,6 +107,35 @@ release's managed marker. It does not touch legacy content:
 
 ```bash
 python channel_refresh.py rollback
+```
+
+## Trading Education upgrade
+
+`education_upgrade.py` maintains the public Education category as two locked,
+readable forums:
+
+- Forge Education contains the five platform and account guides.
+- Trading Education contains chart patterns, candlesticks, market structure,
+  support and resistance, risk management, psychology, session and news
+  awareness, planning and journaling.
+
+Members can read and react, but cannot create or reply to forum posts. The
+upgrade also repairs each Forge Education card so it has exactly one bound
+image. The replaced Resources, Trading Psychology and Risk Management text
+channels are renamed as hidden rollback archives. Their original messages and
+channel settings remain recoverable.
+
+The main bot applies this versioned upgrade once after a fresh gateway
+connection. The operation validates assets and channel identity before making
+changes, verifies both forums before hiding any replaced channel, and remains
+safe to repeat.
+
+Manual controls are available for a read-only plan, verification and rollback:
+
+```bash
+python education_upgrade.py plan
+python education_upgrade.py verify
+python education_upgrade.py rollback
 ```
 
 ## Validation

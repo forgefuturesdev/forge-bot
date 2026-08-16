@@ -18,6 +18,8 @@ sys.stdout.reconfigure(line_buffering=True)
 
 import os
 
+import education_upgrade
+
 TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "1474405047679848643")
 BOT_ID = os.environ.get("DISCORD_BOT_ID", "1482017269092716645")
@@ -125,12 +127,12 @@ ALLOWED_INVITES = ['HuC8UsGn']
 
 # Auto-responses for common questions
 AUTO_RESPONSES = {
-    "how do i get started": "Check out <#{welcome}> for a getting started guide, and grab your roles in <#{get_roles}>! Our challenge plans are at https://forge-futures.com/plans",
+    "how do i get started": "Read <#{welcome}> for the basics and choose your roles in <#{get_roles}>. Evaluation plans are at https://forge-futures.com/plans",
     "what are the rules": "Full server rules are in <#{rules}>. Challenge trading rules are in <#{rules_explained}>. You can also check https://forge-futures.com/rules",
-    "how do payouts work": "Pass your evaluation → get a qualified account → trade profitably → request a payout. Splits are 70-90% depending on your plan. Full details in <#{rules_explained}>",
+    "how do payouts work": "Pass the evaluation, complete the required checks and meet the qualified-account payout rules. Traders receive 90% of an approved payout request. Full details are in <#{rules_explained}>.",
     "how do i open a ticket": "Head to <#{open_ticket}> and click the 🎫 reaction to create a support ticket!",
     "when does the market open": "CME Futures: Sunday 6:00 PM – Friday 5:00 PM ET, with a daily halt 5:00-6:00 PM ET.",
-    "what can i trade": "Phase 1: E-mini S&P 500 (ES) and Micro E-mini NASDAQ-100 (MNQ). More instruments coming later!",
+    "what can i trade": "Forge supports ES, NQ, MES and MNQ on simulated accounts.",
     "is this a scam": "Forge Futures staff will **NEVER** DM you first. Check <#{verified_staff}> for official team members. If someone DMs you claiming to be staff, report them immediately.",
 }
 
@@ -157,6 +159,7 @@ class ForgeBot:
         self.session_id = None
         self.reaction_roles = {}
         self.ticket_message_id = None
+        self.education_refresh_started = False
         
         # Anti-spam tracking
         self.message_timestamps = defaultdict(list)  # user_id -> [timestamps]
@@ -169,6 +172,15 @@ class ForgeBot:
         # Anti-raid tracking
         self.join_timestamps = []
         self.raid_mode = False
+
+    async def run_education_upgrade(self):
+        """Apply the versioned Education release without blocking heartbeats."""
+        try:
+            print("  Applying Forge Education release")
+            await asyncio.to_thread(education_upgrade.apply)
+            print("  Forge Education release verified")
+        except Exception as exc:
+            print(f"  Education release failed safely: {type(exc).__name__}: {exc}")
         
     # ============================================================
     # API HELPERS
@@ -1018,6 +1030,9 @@ class ForgeBot:
                                     await self.setup_reaction_roles()
                                     await self.log("🤖 Bot Online", 
                                         "Forge Marketing bot connected and monitoring.", 0x2ECC71)
+                                    if not self.education_refresh_started:
+                                        self.education_refresh_started = True
+                                        asyncio.create_task(self.run_education_upgrade())
                                     print("  ✅ Ready!")
                                 elif event in TARGET_GUILD_EVENTS and not is_target_guild_event(d):
                                     continue

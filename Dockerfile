@@ -6,6 +6,6 @@ COPY requirements.txt .
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
 COPY *.py ./
-COPY assets/education/ ./assets/education/
+COPY assets/ ./assets/
 
 CMD ["python", "-u", "bot.py"]

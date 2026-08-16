@@ -206,6 +206,43 @@ class ChannelRefreshTests(unittest.TestCase):
             },
         )
 
+    def test_stale_artwork_is_rebound_as_exactly_one_attachment(self):
+        guide = channel_refresh.build_education_guides()[0]
+        current_embeds = __import__("json").loads(__import__("json").dumps(guide["embeds"]))
+        current_embeds[0]["image"] = {"url": "https://cdn.discordapp.com/old-image.png"}
+        responses = [
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "embeds": current_embeds,
+                    "attachments": [{"id": "old", "filename": guide["asset"]}],
+                },
+            ),
+            SimpleNamespace(status_code=200, json=lambda: {}),
+        ]
+
+        with patch.object(channel_refresh, "request", side_effect=responses) as api_request:
+            channel_refresh.update_forum_guide(
+                {"id": "guide-thread", "name": guide["name"]},
+                guide,
+            )
+
+        self.assertEqual(api_request.call_count, 2)
+        patch_call = api_request.call_args_list[1]
+        self.assertEqual(patch_call.args[:2], ("PATCH", "/channels/guide-thread/messages/guide-thread"))
+        self.assertIn("files", patch_call.kwargs)
+        payload = __import__("json").loads(
+            patch_call.kwargs["files"]["payload_json"][1]
+        )
+        self.assertEqual(
+            payload["attachments"],
+            [{"id": 0, "filename": "forge-education-education-hub.png"}],
+        )
+        self.assertEqual(
+            payload["embeds"][0]["image"],
+            {"url": "attachment://forge-education-education-hub.png"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
