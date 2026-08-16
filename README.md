@@ -10,6 +10,13 @@ Deploy this repo to Railway.
 The reporting service additionally requires `TELEGRAM_BOT_TOKEN` and
 `TELEGRAM_CHAT_ID`.
 
+The newsroom services use these optional explicit channel and brand settings:
+
+- `DISCORD_DAILY_HIGHLIGHTS_CHANNEL_ID`
+- `DISCORD_MARKET_WATCH_CHANNEL_ID`
+- `DISCORD_ANNOUNCEMENTS_CHANNEL_ID`
+- `FORGE_SITE_URL`, `FORGE_DISCORD_INVITE_URL` and `FORGE_ICON_URL`
+
 ## Discord application settings
 
 Enable only the **Server Members Intent** and **Message Content Intent**.
@@ -18,7 +25,7 @@ Direct-message events are intentionally not subscribed to or processed.
 The bot needs the following server permissions for its existing features:
 
 - View Channels, Read Message History, Send Messages and Embed Links
-- Attach Files, Add Reactions and Manage Messages
+- Attach Files, Add Reactions, Manage Messages and Pin Messages
 - Create Private Threads, Send Messages in Threads and Manage Threads
 - Manage Roles, Moderate Members, Kick Members and Manage Server
 
@@ -32,6 +39,47 @@ Do not grant the bot the Discord `Administrator` permission.
 - Staff ticket attribution is retained privately in the moderation log.
 - Automated briefings describe feed results and never declare a session safe
   to trade or invent support/resistance levels.
+- Externally sourced titles are cleaned, source-linked and sent with mentions
+  disabled. Quotes and calendars are explicitly described as potentially
+  delayed, stale or incomplete.
+- The session briefings and weekly outlook are published from Discord
+  Announcement channels so other communities can follow them. The higher-
+  frequency Market Watch feed remains internal to avoid follower spam.
+- A failed Discord post or crosspost exits non-zero so Railway no longer marks
+  a failed newsroom run as successful.
+
+## Forge Market Desk
+
+The deployed newsroom schedule runs:
+
+- London, New York and Asia session briefings on weekdays
+- a weekday economic-calendar digest
+- three weekday Market Pulse checks, with cross-run link deduplication
+- a published weekly outlook on Sunday
+
+London and New York jobs use two UTC cron windows plus an in-process local-time
+guard. This preserves a 07:30 London briefing and 09:00 New York briefing when
+the UK or US changes daylight-saving time. The Asia briefing similarly stays at
+23:30 UK time. Manual validation can bypass the guard with `--force`.
+
+Run the read-only channel preflight before deploying or changing channel IDs:
+
+```bash
+python newsroom_setup.py check
+```
+
+The three configured newsroom channels must be Discord Announcement channels
+(channel type 5). After validation, publish and pin the member-facing follow
+guide once with:
+
+```bash
+python newsroom_setup.py publish-guide
+```
+
+Every outward-facing embed carries the Forge Futures Market Desk author mark,
+Forge icon, website, source links and information-only disclaimer. The bot
+avatar is managed through the Discord application profile and remains a clean
+Blaze avatar without additional text or stamps.
 
 ## Validation
 

@@ -1,198 +1,316 @@
 #!/usr/bin/env python3
-"""
-Forge Futures — Discord Daily Market Briefings
-3x daily in #daily-highlights:
-  🇬🇧 UK Open — 7:30 AM GMT
-  🇺🇸 US Open — 2:00 PM GMT
-  🌏 Asia Open — 11:30 PM GMT
-Each tailored to its region with a global snapshot.
-"""
-import requests
-import json
-import feedparser
-import sys
-from datetime import datetime, timezone
+"""Source-linked Forge Futures briefings for the major market sessions."""
+
+from datetime import datetime, timedelta, timezone
 import os
+import sys
+from zoneinfo import ZoneInfo
+
+import feedparser
+import requests
+
+from newsroom import (
+    FORGE_ORANGE,
+    brand_embed,
+    filter_unseen_news,
+    headline_category,
+    post_discord,
+    recent_channel_links,
+    render_calendar_events,
+    render_headlines,
+    render_market_lens,
+    select_calendar_events,
+)
+
 
 TOKEN = os.environ["DISCORD_BOT_TOKEN"]
-BASE = "https://discord.com/api/v10"
-HEADERS_D = {"Authorization": f"Bot {TOKEN}", "Content-Type": "application/json"}
-CHANNEL = "1482427993140760636"  # daily-highlights
-ORANGE = 0xFE602F
-YF_HEADERS = {"User-Agent": "Mozilla/5.0"}
+CHANNEL = os.environ.get(
+    "DISCORD_DAILY_HIGHLIGHTS_CHANNEL_ID",
+    "1482427993140760636",
+)
+REQUEST_TIMEOUT_SECONDS = 10
+YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-def get_quote(symbol):
+
+SESSION_CONFIG = {
+    "uk": {
+        "title": "🇬🇧 LONDON OPEN · MARKET DESK",
+        "timezone": "Europe/London",
+        "schedule_timezone": "Europe/London",
+        "target_time": (7, 30),
+        "query": "stock market UK FTSE Europe futures today",
+        "snapshot": [
+            ("ES", "ES=F", 2),
+            ("NQ", "NQ=F", 2),
+            ("FTSE", "%5EFTSE", 2),
+            ("DAX", "%5EGDAXI", 2),
+        ],
+        "cross_market": [
+            ("GBP/USD", "GBPUSD=X", 4),
+            ("EUR/USD", "EURUSD=X", 4),
+            ("VIX", "%5EVIX", 2),
+            ("DXY", "DX-Y.NYB", 3),
+            ("US 10Y", "%5ETNX", 3),
+        ],
+    },
+    "us": {
+        "title": "🇺🇸 NEW YORK OPEN · MARKET DESK",
+        "timezone": "America/New_York",
+        "schedule_timezone": "America/New_York",
+        "target_time": (9, 0),
+        "query": "S&P 500 Nasdaq futures US market economy today",
+        "snapshot": [
+            ("ES", "ES=F", 2),
+            ("NQ", "NQ=F", 2),
+            ("VIX", "%5EVIX", 2),
+        ],
+        "cross_market": [
+            ("DXY", "DX-Y.NYB", 3),
+            ("US 10Y", "%5ETNX", 3),
+            ("Crude", "CL=F", 2),
+            ("Gold", "GC=F", 2),
+        ],
+    },
+    "asia": {
+        "title": "🌏 ASIA OPEN · MARKET DESK",
+        "timezone": "Asia/Tokyo",
+        "schedule_timezone": "Europe/London",
+        "target_time": (23, 30),
+        "query": "Asia markets Nikkei Hang Seng futures today",
+        "snapshot": [
+            ("ES", "ES=F", 2),
+            ("NQ", "NQ=F", 2),
+            ("Nikkei", "%5EN225", 2),
+            ("Hang Seng", "%5EHSI", 2),
+        ],
+        "cross_market": [
+            ("USD/JPY", "JPY=X", 3),
+            ("VIX", "%5EVIX", 2),
+            ("Crude", "CL=F", 2),
+            ("Gold", "GC=F", 2),
+        ],
+    },
+}
+
+
+def get_quote(symbol: str) -> dict:
     try:
-        r = requests.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d",
-                        headers=YF_HEADERS, timeout=10)
-        if r.status_code == 200:
-            data = r.json()["chart"]["result"][0]
-            meta = data["meta"]
-            quotes = data.get("indicators", {}).get("quote", [{}])[0]
-            info = {"price": meta.get("regularMarketPrice"),
-                    "prev": meta.get("previousClose") or meta.get("chartPreviousClose")}
-            if quotes.get("high"):
-                info["high_5d"] = max(h for h in quotes["high"] if h)
-            if quotes.get("low"):
-                info["low_5d"] = min(l for l in quotes["low"] if l)
-            return info
-    except: pass
-    return {}
+        response = requests.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+            params={"interval": "1d", "range": "5d"},
+            headers=YAHOO_HEADERS,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        if response.status_code != 200:
+            return {}
+        results = response.json().get("chart", {}).get("result") or []
+        if not results:
+            return {}
+        meta = results[0].get("meta", {})
+        return {
+            "price": meta.get("regularMarketPrice"),
+            "prev": meta.get("previousClose") or meta.get("chartPreviousClose"),
+            "timestamp": meta.get("regularMarketTime"),
+        }
+    except (requests.RequestException, TypeError, ValueError):
+        return {}
 
-def fmt(val, dec=2):
-    if not val: return "N/A"
-    return f"{val:,.{dec}f}" if val > 100 else f"{val:.{dec}f}"
 
-def chg(price, prev):
-    if not price or not prev: return "N/A", "◆"
-    pct = ((price - prev) / prev) * 100
-    return f"{"+" if pct >= 0 else ""}{pct:.2f}%", "▲" if pct >= 0 else "▼"
-
-def get_news(query, count=5):
-    items = []
+def get_news(query: str, count: int = 10) -> list[dict]:
     try:
-        feed = feedparser.parse(f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en")
-        for e in feed.entries[:count]:
-            title = e.title
-            if " - " in title: title = title.rsplit(" - ", 1)[0]
-            items.append(title[:100])
-    except: pass
+        response = requests.get(
+            "https://news.google.com/rss/search",
+            params={"q": query, "hl": "en-GB", "gl": "GB", "ceid": "GB:en"},
+            headers=YAHOO_HEADERS,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        if response.status_code != 200:
+            return []
+        feed = feedparser.parse(response.content)
+    except requests.RequestException:
+        return []
+
+    items: list[dict] = []
+    for entry in feed.entries[:count]:
+        title = str(entry.get("title") or "")
+        source = entry.get("source") or {}
+        source_name = source.get("title") if isinstance(source, dict) else str(source)
+        if not source_name and " - " in title:
+            title, source_name = title.rsplit(" - ", 1)
+        item = {
+            "title": title,
+            "source": source_name or "Google News",
+            "url": entry.get("link"),
+        }
+        item["category"] = headline_category(title)
+        items.append(item)
     return items
 
-def get_calendar():
-    events = []
+
+def get_calendar_feed() -> list[dict]:
     try:
-        r = requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", timeout=10)
-        if r.status_code == 200:
-            for e in r.json():
-                if e.get("impact") == "High":
-                    events.append(f"◆ {e.get('title', 'Unknown')} — Forecast: {e.get('forecast', 'N/A')} | Prev: {e.get('previous', 'N/A')}")
-    except: pass
-    return events[:6]
+        response = requests.get(
+            "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+            headers=YAHOO_HEADERS,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        return response.json() if response.status_code == 200 else []
+    except (requests.RequestException, TypeError, ValueError):
+        return []
 
-def build_uk_briefing():
-    """UK/London open briefing — focus on European markets."""
-    es = get_quote("ES=F"); nq = get_quote("NQ=F")
-    vix = get_quote("%5EVIX"); oil = get_quote("CL=F")
-    gold = get_quote("GC=F"); dxy = get_quote("DX-Y.NYB")
-    tnx = get_quote("%5ETNX")
-    ftse = get_quote("%5EFTSE"); dax = get_quote("%5EGDAXI")
-    gbp = get_quote("GBPUSD=X"); eur = get_quote("EURUSD=X")
-    
-    es_chg, es_arr = chg(es.get("price"), es.get("prev"))
-    nq_chg, nq_arr = chg(nq.get("price"), nq.get("prev"))
-    ftse_chg, ftse_arr = chg(ftse.get("price"), ftse.get("prev"))
-    dax_chg, dax_arr = chg(dax.get("price"), dax.get("prev"))
-    
-    vp = vix.get("price", 0)
-    vix_label = "Low" if vp < 15 else ("Neutral" if vp < 20 else ("Elevated" if vp < 30 else "High Fear"))
-    
-    news = get_news("stock+market+UK+FTSE+Europe+today")
-    calendar = get_calendar()
-    
-    news_text = "\n".join(f"◆ {n}" for n in news[:5]) or "◆ No major headlines"
-    cal_text = "\n".join(calendar[:4]) or "◆ No high-impact events today"
-    
-    return {
-        "title": "🇬🇧  LONDON OPEN — DAILY BRIEFING",
-        "description": f"**{datetime.now().strftime('%A %d %B %Y')}** — Pre-market overview ahead of the London session.",
-        "color": ORANGE,
-        "fields": [
-            {"name": "━━  US FUTURES  ━━", "inline": False,
-             "value": f"```\nES  (S&P 500)   {fmt(es.get('price'))}   {es_arr} {es_chg}\nNQ  (Nasdaq)   {fmt(nq.get('price'))}   {nq_arr} {nq_chg}\n```"},
-            {"name": "━━  EUROPE  ━━", "inline": False,
-             "value": f"```\nFTSE 100      {fmt(ftse.get('price'))}   {ftse_arr} {ftse_chg}\nDAX           {fmt(dax.get('price'))}   {dax_arr} {dax_chg}\nGBP/USD         {fmt(gbp.get('price'),4)}   {chg(gbp.get('price'),gbp.get('prev'))[1]} {chg(gbp.get('price'),gbp.get('prev'))[0]}\nEUR/USD         {fmt(eur.get('price'),4)}   {chg(eur.get('price'),eur.get('prev'))[1]} {chg(eur.get('price'),eur.get('prev'))[0]}\n```"},
-            {"name": "━━  MACRO  ━━", "inline": False,
-             "value": f"```\nVIX            {fmt(vix.get('price'))}   ({vix_label})\nDXY            {fmt(dxy.get('price'),3)}\n10Y Yield      {fmt(tnx.get('price'),3)}%\nCrude Oil    ${fmt(oil.get('price'))}\nGold         ${fmt(gold.get('price'))}\n```"},
-            {"name": "━━  ECONOMIC CALENDAR  ━━", "inline": False, "value": cal_text},
-            {"name": "━━  HEADLINES  ━━", "inline": False, "value": news_text},
-        ],
-        "footer": {"text": "Forge Futures ◆ Next: US Open (2:00 PM GMT)"},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+
+def format_price(value: object, decimals: int = 2) -> str:
+    if value is None:
+        return "N/A"
+    return f"{float(value):,.{decimals}f}"
+
+
+def format_change(price: object, previous: object) -> str:
+    if price is None or previous in (None, 0):
+        return "   N/A"
+    percentage = ((float(price) - float(previous)) / float(previous)) * 100
+    arrow = "▲" if percentage >= 0 else "▼"
+    return f"{arrow} {percentage:+.2f}%"
+
+
+def render_quote_board(rows: list[tuple[str, str, int]], quotes: dict[str, dict]) -> str:
+    rendered: list[str] = []
+    for label, symbol, decimals in rows:
+        quote = quotes.get(symbol, {})
+        rendered.append(
+            f"{label:<10} {format_price(quote.get('price'), decimals):>12}  "
+            f"{format_change(quote.get('price'), quote.get('prev'))}"
+        )
+    return "```\n" + "\n".join(rendered) + "\n```"
+
+
+def quote_as_of(quotes: dict[str, dict]) -> str:
+    timestamps = [
+        int(quote["timestamp"])
+        for quote in quotes.values()
+        if quote.get("timestamp")
+    ]
+    if not timestamps:
+        return "Quote timestamp unavailable"
+    observed = datetime.fromtimestamp(max(timestamps), tz=timezone.utc)
+    london = observed.astimezone(ZoneInfo("Europe/London"))
+    new_york = observed.astimezone(ZoneInfo("America/New_York"))
+    return f"Quotes as of {london:%d %b %H:%M UK} / {new_york:%H:%M ET}"
+
+
+def build_briefing(session: str) -> dict:
+    config = SESSION_CONFIG[session]
+    symbols = {
+        symbol
+        for _, symbol, _ in config["snapshot"] + config["cross_market"]
     }
+    quotes = {symbol: get_quote(symbol) for symbol in symbols}
 
-def build_us_briefing():
-    """US/New York open briefing — focus on US markets."""
-    es = get_quote("ES=F"); nq = get_quote("NQ=F")
-    vix = get_quote("%5EVIX"); oil = get_quote("CL=F")
-    gold = get_quote("GC=F"); dxy = get_quote("DX-Y.NYB")
-    tnx = get_quote("%5ETNX")
-    
-    es_chg, es_arr = chg(es.get("price"), es.get("prev"))
-    nq_chg, nq_arr = chg(nq.get("price"), nq.get("prev"))
-    
-    vp = vix.get("price", 0)
-    vix_label = "Low" if vp < 15 else ("Neutral" if vp < 20 else ("Elevated" if vp < 30 else "High Fear"))
-    
-    news = get_news("stock+market+US+S%26P+Nasdaq+today")
-    
-    news_text = "\n".join(f"◆ {n}" for n in news[:5]) or "◆ No major headlines"
-    
-    return {
-        "title": "🇺🇸  NEW YORK OPEN — DAILY BRIEFING",
-        "description": f"**{datetime.now().strftime('%A %d %B %Y')}** — Pre-market overview ahead of the US session.",
-        "color": ORANGE,
+    seen_links = recent_channel_links(TOKEN, CHANNEL, limit=40)
+    headlines = filter_unseen_news(
+        get_news(config["query"]),
+        seen_links,
+        limit=4,
+    )
+    calendar = select_calendar_events(
+        get_calendar_feed(),
+        start=datetime.now(timezone.utc) - timedelta(hours=1),
+        hours=37,
+    )
+
+    local_now = datetime.now(ZoneInfo(config["timezone"]))
+    embed = {
+        "title": config["title"],
+        "description": (
+            f"**{local_now:%A %d %B %Y}** · Indicative session overview. "
+            "Confirm time-sensitive information with the linked sources."
+        ),
+        "color": FORGE_ORANGE,
         "fields": [
-            {"name": "━━  US FUTURES  ━━", "inline": False,
-             "value": f"```\nES  (S&P 500)   {fmt(es.get('price'))}   {es_arr} {es_chg}\nNQ  (Nasdaq)   {fmt(nq.get('price'))}   {nq_arr} {nq_chg}\n```"},
-            {"name": "━━  MACRO  ━━", "inline": False,
-             "value": f"```\nVIX            {fmt(vix.get('price'))}   ({vix_label})\nDXY            {fmt(dxy.get('price'),3)}\n10Y Yield      {fmt(tnx.get('price'),3)}%\nCrude Oil    ${fmt(oil.get('price'))}\nGold         ${fmt(gold.get('price'))}\n```"},
-            {"name": "━━  HEADLINES  ━━", "inline": False, "value": news_text},
+            {
+                "name": "SESSION SNAPSHOT",
+                "value": render_quote_board(config["snapshot"], quotes),
+                "inline": False,
+            },
+            {
+                "name": "CROSS-MARKET BOARD",
+                "value": render_quote_board(config["cross_market"], quotes),
+                "inline": False,
+            },
+            {
+                "name": "NEXT RISK WINDOWS",
+                "value": render_calendar_events(calendar, limit=4),
+                "inline": False,
+            },
+            {
+                "name": "WHAT'S MOVING",
+                "value": render_headlines(headlines, limit=4),
+                "inline": False,
+            },
+            {
+                "name": "TRADER LENS",
+                "value": render_market_lens(headlines),
+                "inline": False,
+            },
+            {
+                "name": "DATA CHECK",
+                "value": (
+                    f"{quote_as_of(quotes)}. Yahoo Finance quotes and the public "
+                    "calendar feed may be delayed, stale or incomplete."
+                ),
+                "inline": False,
+            },
         ],
-        "footer": {"text": "Forge Futures ◆ Next: Asia Open (11:30 PM GMT)"},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    return brand_embed(embed, data_note="Indicative data may be delayed")
 
-def build_asia_briefing():
-    """Asia open briefing — focus on Asian markets + overnight preview."""
-    es = get_quote("ES=F"); nq = get_quote("NQ=F")
-    vix = get_quote("%5EVIX")
-    nikkei = get_quote("%5EN225")
-    hsi = get_quote("%5EHSI")
-    
-    es_chg, es_arr = chg(es.get("price"), es.get("prev"))
-    nq_chg, nq_arr = chg(nq.get("price"), nq.get("prev"))
-    nik_chg, nik_arr = chg(nikkei.get("price"), nikkei.get("prev"))
-    hsi_chg, hsi_arr = chg(hsi.get("price"), hsi.get("prev"))
-    
-    news = get_news("stock+market+Asia+Nikkei+today")
-    news_text = "\n".join(f"◆ {n}" for n in news[:5]) or "◆ No major headlines"
-    
-    return {
-        "title": "🌏  ASIA OPEN — DAILY BRIEFING",
-        "description": f"**{datetime.now().strftime('%A %d %B %Y')}** — Overnight preview ahead of the Asia session.",
-        "color": ORANGE,
-        "fields": [
-            {"name": "━━  US CLOSE  ━━", "inline": False,
-             "value": f"```\nES  (S&P 500)   {fmt(es.get('price'))}   {es_arr} {es_chg}\nNQ  (Nasdaq)   {fmt(nq.get('price'))}   {nq_arr} {nq_chg}\nVIX            {fmt(vix.get('price'))}\n```"},
-            {"name": "━━  ASIA PACIFIC  ━━", "inline": False,
-             "value": f"```\nNikkei 225    {fmt(nikkei.get('price'))}   {nik_arr} {nik_chg}\nHang Seng     {fmt(hsi.get('price'))}   {hsi_arr} {hsi_chg}\n```"},
-            {"name": "━━  HEADLINES  ━━", "inline": False, "value": news_text},
-        ],
-        "footer": {"text": "Forge Futures ◆ Next: UK Open (7:30 AM GMT)"},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
 
-def post_embed(embed):
-    r = requests.post(f"{BASE}/channels/{CHANNEL}/messages", headers=HEADERS_D,
-                      json={"embeds": [embed]})
-    return r.status_code == 200
+def build_uk_briefing() -> dict:
+    return build_briefing("uk")
 
-def main():
-    session = sys.argv[1] if len(sys.argv) > 1 else "uk"
-    
-    if session == "uk":
-        embed = build_uk_briefing()
-    elif session == "us":
-        embed = build_us_briefing()
-    elif session == "asia":
-        embed = build_asia_briefing()
-    else:
+
+def build_us_briefing() -> dict:
+    return build_briefing("us")
+
+
+def build_asia_briefing() -> dict:
+    return build_briefing("asia")
+
+
+def post_embed(embed: dict) -> bool:
+    result = post_discord(TOKEN, CHANNEL, [embed], publish=True)
+    return bool(result)
+
+
+def should_run_session(session: str, now: datetime | None = None) -> bool:
+    config = SESSION_CONFIG[session]
+    utc_now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    local_now = utc_now.astimezone(ZoneInfo(config["schedule_timezone"]))
+    target_hour, target_minute = config["target_time"]
+    return (local_now.hour, local_now.minute) == (target_hour, target_minute)
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    session = args[0] if args else "uk"
+    if session not in SESSION_CONFIG:
         print(f"Unknown session: {session}")
+        raise SystemExit(2)
+    if "--force" not in args and not should_run_session(session):
+        timezone_name = SESSION_CONFIG[session]["schedule_timezone"]
+        target_hour, target_minute = SESSION_CONFIG[session]["target_time"]
+        print(
+            f"SKIP: {session.upper()} briefing is scheduled for "
+            f"{target_hour:02d}:{target_minute:02d} {timezone_name}"
+        )
         return
-    
-    ok = post_embed(embed)
-    print(f"{'✅' if ok else '❌'} {session.upper()} briefing posted to Discord")
+
+    posted = post_embed(build_briefing(session))
+    if not posted:
+        print(f"ERROR: {session.upper()} briefing failed")
+        raise SystemExit(1)
+    print(f"OK: {session.upper()} briefing posted and published")
+
 
 if __name__ == "__main__":
     main()
