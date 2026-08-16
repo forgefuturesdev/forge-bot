@@ -129,6 +129,51 @@ class EducationUpgradeTests(unittest.TestCase):
         self.assertEqual(restored, education_upgrade.archive_state(channel))
         self.assertLessEqual(len(content), 2000)
 
+    def test_archive_uses_dedicated_permission_endpoints(self):
+        channel = {
+            "id": "resource-id",
+            "name": "resources",
+            "topic": "Old useful content",
+            "position": 7,
+            "parent_id": channel_refresh.EDUCATION_CATEGORY_ID,
+            "permission_overwrites": [
+                {
+                    "id": channel_refresh.GUILD_ID,
+                    "type": 0,
+                    "allow": str(channel_refresh.VIEW_CHANNEL),
+                    "deny": "0",
+                }
+            ],
+        }
+        ok = SimpleNamespace(status_code=200, json=lambda: {})
+        no_content = SimpleNamespace(status_code=204, json=lambda: {})
+
+        with (
+            patch.object(
+                education_upgrade,
+                "find_archive_state_message",
+                return_value={"id": "backup"},
+            ),
+            patch.object(
+                channel_refresh,
+                "request",
+                side_effect=[ok, no_content, no_content],
+            ) as api_request,
+        ):
+            education_upgrade.archive_channel(channel, "archive-resources")
+
+        rename_call = api_request.call_args_list[0]
+        self.assertEqual(rename_call.args[:2], ("PATCH", "/channels/resource-id"))
+        self.assertNotIn("permission_overwrites", rename_call.kwargs["json_body"])
+        permission_paths = [call.args[1] for call in api_request.call_args_list[1:]]
+        self.assertEqual(
+            set(permission_paths),
+            {
+                f"/channels/resource-id/permissions/{channel_refresh.GUILD_ID}",
+                f"/channels/resource-id/permissions/{channel_refresh.BOT_ID}",
+            },
+        )
+
     def test_runtime_packages_both_asset_sets(self):
         dockerfile = (
             Path(__file__).resolve().parents[1] / "Dockerfile"

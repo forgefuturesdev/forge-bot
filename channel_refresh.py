@@ -101,7 +101,17 @@ def request(
 
 def expect(response: requests.Response, statuses: tuple[int, ...], label: str) -> dict:
     if response.status_code not in statuses:
-        raise DiscordError(f"{label} failed with HTTP {response.status_code}")
+        detail = ""
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                code = payload.get("code")
+                message = payload.get("message")
+                if code or message:
+                    detail = f" ({code or 'Discord'}: {message or 'request rejected'})"
+        except (TypeError, ValueError):
+            pass
+        raise DiscordError(f"{label} failed with HTTP {response.status_code}{detail}")
     if response.status_code == 204:
         return {}
     return response.json()

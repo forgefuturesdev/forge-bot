@@ -599,6 +599,7 @@ def archive_channel(channel: dict, archive_name: str) -> None:
             f"Rollback state for #{channel.get('name')}",
         )
         created_backup_id = str(backup_message["id"])
+    channel_renamed = False
     try:
         public_info.expect(
             public_info.request(
@@ -610,15 +611,30 @@ def archive_channel(channel: dict, archive_name: str) -> None:
                         f"{RELEASE_MARKER} | Hidden rollback archive. "
                         "Original messages are preserved."
                     ),
-                    "permission_overwrites": archive_permissions(channel),
                 },
                 reason=f"Archive replaced Education channel for {RELEASE_MARKER}",
             ),
             (200,),
             f"Archive #{channel.get('name')}",
         )
+        channel_renamed = True
+        for overwrite in archive_permissions(channel):
+            public_info.expect(
+                public_info.request(
+                    "PUT",
+                    f"/channels/{channel_id}/permissions/{overwrite['id']}",
+                    json_body={
+                        "type": overwrite["type"],
+                        "allow": overwrite["allow"],
+                        "deny": overwrite["deny"],
+                    },
+                    reason=f"Hide replaced Education channel for {RELEASE_MARKER}",
+                ),
+                (200, 204),
+                f"Hide #{archive_name} from members",
+            )
     except Exception:
-        if created_backup_id:
+        if created_backup_id and not channel_renamed:
             public_info.request(
                 "DELETE",
                 f"/channels/{channel_id}/messages/{created_backup_id}",
@@ -857,13 +873,45 @@ def restore_archive(channel: dict) -> None:
                 "topic": state.get("topic"),
                 "position": state.get("position"),
                 "parent_id": state.get("parent_id"),
-                "permission_overwrites": state.get("permission_overwrites", []),
             },
             reason=f"Restore Education channel from {RELEASE_MARKER}",
         ),
         (200,),
         f"Restore #{state['name']}",
     )
+    desired_overwrites = {
+        str(overwrite["id"]): overwrite
+        for overwrite in state.get("permission_overwrites", [])
+    }
+    current_overwrites = {
+        str(overwrite["id"]): overwrite
+        for overwrite in channel.get("permission_overwrites", [])
+    }
+    for overwrite_id in current_overwrites.keys() - desired_overwrites.keys():
+        public_info.expect(
+            public_info.request(
+                "DELETE",
+                f"/channels/{channel['id']}/permissions/{overwrite_id}",
+                reason=f"Restore Education permissions from {RELEASE_MARKER}",
+            ),
+            (200, 204),
+            f"Remove archive permission from #{state['name']}",
+        )
+    for overwrite in desired_overwrites.values():
+        public_info.expect(
+            public_info.request(
+                "PUT",
+                f"/channels/{channel['id']}/permissions/{overwrite['id']}",
+                json_body={
+                    "type": overwrite["type"],
+                    "allow": overwrite["allow"],
+                    "deny": overwrite["deny"],
+                },
+                reason=f"Restore Education permissions from {RELEASE_MARKER}",
+            ),
+            (200, 204),
+            f"Restore permissions for #{state['name']}",
+        )
     public_info.expect(
         public_info.request(
             "DELETE",
