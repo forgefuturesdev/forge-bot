@@ -206,7 +206,7 @@ class ChannelRefreshTests(unittest.TestCase):
             },
         )
 
-    def test_stale_artwork_is_rebound_as_exactly_one_attachment(self):
+    def test_duplicate_artwork_is_republished_as_one_attachment(self):
         guide = channel_refresh.build_education_guides()[0]
         current_embeds = __import__("json").loads(__import__("json").dumps(guide["embeds"]))
         current_embeds[0]["image"] = {"url": "https://cdn.discordapp.com/old-image.png"}
@@ -215,7 +215,12 @@ class ChannelRefreshTests(unittest.TestCase):
                 status_code=200,
                 json=lambda: {
                     "embeds": current_embeds,
-                    "attachments": [{"id": "old", "filename": guide["asset"]}],
+                    "attachments": [
+                        {
+                            "id": "current",
+                            "filename": "forge-education-education-hub.png",
+                        }
+                    ],
                 },
             ),
             SimpleNamespace(status_code=200, json=lambda: {}),
@@ -238,10 +243,7 @@ class ChannelRefreshTests(unittest.TestCase):
             payload["attachments"],
             [{"id": 0, "filename": "forge-education-education-hub.png"}],
         )
-        self.assertEqual(
-            payload["embeds"][0]["image"],
-            {"url": "attachment://forge-education-education-hub.png"},
-        )
+        self.assertNotIn("image", payload["embeds"][0])
 
 
 if __name__ == "__main__":
