@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the two Forge education forums and archive the replaced text channels."""
+"""Build the two Forge education forums and retire the replaced text channels."""
 
 from __future__ import annotations
 
@@ -553,7 +553,7 @@ def validate_archive_candidates(channels: dict[str, dict]) -> None:
             )
         channel = public_channel or archive_channel
         if not channel:
-            raise public_info.DiscordError(f"Missing channel to replace: #{public_name}")
+            continue
         if channel.get("type") != 0:
             raise public_info.DiscordError(f"#{channel.get('name')} is not a text channel")
         if channel.get("parent_id") != public_info.EDUCATION_CATEGORY_ID:
@@ -655,6 +655,27 @@ def archive_replaced_channels() -> None:
         print(f"ARCHIVED: #{public_name} as hidden #{archive_name}")
 
 
+def delete_replaced_channels() -> None:
+    """Permanently delete only the three explicitly retired Education channels."""
+    channels = public_info.index_channels(public_info.get_guild_channels())
+    validate_archive_candidates(channels)
+    for public_name, archive_name in ARCHIVE_TARGETS.items():
+        channel = channels.get(public_name) or channels.get(archive_name)
+        if not channel:
+            print(f"CHECKED: retired #{public_name} is already deleted")
+            continue
+        public_info.expect(
+            public_info.request(
+                "DELETE",
+                f"/channels/{channel['id']}",
+                reason=f"Permanently remove user-approved empty Education archive for {RELEASE_MARKER}",
+            ),
+            (200, 204),
+            f"Delete #{channel.get('name')}",
+        )
+        print(f"DELETED: #{channel.get('name')}")
+
+
 def verify_guide_forum(
     forum: dict,
     guides: list[dict],
@@ -742,26 +763,13 @@ def verify_forums() -> None:
     )
 
 
-def verify_archives() -> None:
+def verify_deleted_channels() -> None:
     channels = public_info.index_channels(public_info.get_guild_channels())
     for public_name, archive_name in ARCHIVE_TARGETS.items():
         if channels.get(public_name):
             raise public_info.DiscordError(f"Replaced channel is still public: #{public_name}")
-        channel = channels.get(archive_name)
-        if not channel:
-            raise public_info.DiscordError(f"Hidden rollback archive is missing: #{archive_name}")
-        everyone = next(
-            (
-                overwrite
-                for overwrite in channel.get("permission_overwrites", [])
-                if str(overwrite.get("id")) == public_info.GUILD_ID
-            ),
-            None,
-        )
-        if not everyone or not (int(everyone.get("deny", "0")) & public_info.VIEW_CHANNEL):
-            raise public_info.DiscordError(f"Rollback archive is visible to members: #{archive_name}")
-        if not find_archive_state_message(str(channel["id"])):
-            raise public_info.DiscordError(f"Rollback metadata is missing: #{archive_name}")
+        if channels.get(archive_name):
+            raise public_info.DiscordError(f"Retired archive still exists: #{archive_name}")
 
 
 def apply_guides(
@@ -815,9 +823,14 @@ def plan() -> None:
     for guide in build_trading_guides():
         print(f"PLAN: Trading Education guide {guide['name']} [{guide['tag']}]")
     for public_name, archive_name in ARCHIVE_TARGETS.items():
-        state = "already hidden" if channels.get(archive_name) else f"will be hidden as #{archive_name}"
+        if channels.get(public_name):
+            state = "will be permanently deleted"
+        elif channels.get(archive_name):
+            state = f"hidden as #{archive_name} and will be permanently deleted"
+        else:
+            state = "already deleted"
         print(f"PLAN: #{public_name} {state}")
-    print("SAFE: original channel messages will remain in hidden rollback archives")
+    print("DESTRUCTIVE: the three user-approved empty retired channels will be permanently deleted")
 
 
 def apply() -> None:
@@ -846,16 +859,16 @@ def apply() -> None:
     )
 
     verify_forums()
-    archive_replaced_channels()
-    verify_archives()
+    delete_replaced_channels()
+    verify_deleted_channels()
     print("OK: Forge Education and Trading Education are live and verified")
 
 
 def verify() -> None:
     verify_assets()
     verify_forums()
-    verify_archives()
-    print("OK: education upgrade, single-image cards and hidden rollback archives verified")
+    verify_deleted_channels()
+    print("OK: education upgrade, single-image cards and retired channel deletion verified")
 
 
 def restore_archive(channel: dict) -> None:
@@ -965,7 +978,7 @@ def rollback() -> None:
             "Forge Education rollback",
         )
         print(f"RESTORED: #{public_info.LEGACY_FORUM_NAMES[0]}")
-    print("OK: education upgrade rolled back; archived messages were preserved")
+    print("OK: education forums rolled back; permanently deleted retired channels cannot be restored")
 
 
 def main() -> None:

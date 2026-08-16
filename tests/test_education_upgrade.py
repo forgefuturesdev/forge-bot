@@ -181,7 +181,7 @@ class EducationUpgradeTests(unittest.TestCase):
 
         self.assertIn("COPY assets/ ./assets/", dockerfile)
 
-    def test_replaced_channels_are_archived_only_after_forum_verification(self):
+    def test_replaced_channels_are_deleted_only_after_forum_verification(self):
         events = []
         forge_forum = {"id": "forge-forum"}
         trading_forum = {"id": "trading-forum"}
@@ -196,13 +196,37 @@ class EducationUpgradeTests(unittest.TestCase):
             patch.object(education_upgrade, "ensure_trading_forum", return_value=trading_forum),
             patch.object(education_upgrade, "apply_guides", side_effect=lambda *args, **kwargs: events.append(f"apply-{kwargs['label']}")),
             patch.object(education_upgrade, "verify_forums", side_effect=lambda: events.append("verify-forums")),
-            patch.object(education_upgrade, "archive_replaced_channels", side_effect=lambda: events.append("archive")),
-            patch.object(education_upgrade, "verify_archives", side_effect=lambda: events.append("verify-archives")),
+            patch.object(education_upgrade, "delete_replaced_channels", side_effect=lambda: events.append("delete")),
+            patch.object(education_upgrade, "verify_deleted_channels", side_effect=lambda: events.append("verify-deleted")),
         ):
             education_upgrade.apply()
 
-        self.assertLess(events.index("verify-forums"), events.index("archive"))
-        self.assertLess(events.index("archive"), events.index("verify-archives"))
+        self.assertLess(events.index("verify-forums"), events.index("delete"))
+        self.assertLess(events.index("delete"), events.index("verify-deleted"))
+
+    def test_delete_replaced_channels_targets_only_configured_archives(self):
+        channels = [
+            {
+                "id": f"id-{archive_name}",
+                "name": archive_name,
+                "type": 0,
+                "parent_id": channel_refresh.EDUCATION_CATEGORY_ID,
+            }
+            for archive_name in education_upgrade.ARCHIVE_TARGETS.values()
+        ]
+        no_content = SimpleNamespace(status_code=204, json=lambda: {})
+
+        with (
+            patch.object(channel_refresh, "get_guild_channels", return_value=channels),
+            patch.object(channel_refresh, "request", return_value=no_content) as api_request,
+        ):
+            education_upgrade.delete_replaced_channels()
+
+        delete_paths = [call.args[1] for call in api_request.call_args_list]
+        self.assertEqual(
+            set(delete_paths),
+            {f"/channels/id-{name}" for name in education_upgrade.ARCHIVE_TARGETS.values()},
+        )
 
 
 if __name__ == "__main__":

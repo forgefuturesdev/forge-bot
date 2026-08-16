@@ -58,6 +58,8 @@ class ChannelRefreshTests(unittest.TestCase):
             self.assertTrue((channel_refresh.ASSET_DIR / guide["asset"]).is_file())
         for embeds in channel_refresh.build_public_channel_embeds(channels).values():
             channel_refresh.validate_embeds(embeds)
+        for asset_name in channel_refresh.CHANNEL_ASSETS.values():
+            self.assertTrue((channel_refresh.PUBLIC_ASSET_DIR / asset_name).is_file())
 
     def test_education_titles_are_clean_public_names(self):
         guides = channel_refresh.build_education_guides()
@@ -142,6 +144,7 @@ class ChannelRefreshTests(unittest.TestCase):
             patch.object(channel_refresh, "create_forum_guide") as create_guide,
             patch.object(channel_refresh, "update_forum_guide") as update_guide,
             patch.object(channel_refresh, "find_version_message", return_value="current"),
+            patch.object(channel_refresh, "refresh_channel_post", return_value=False),
             patch.object(channel_refresh, "post_and_pin") as post_and_pin,
             patch.object(channel_refresh, "request") as api_request,
         ):
@@ -189,6 +192,7 @@ class ChannelRefreshTests(unittest.TestCase):
             patch.object(channel_refresh, "create_forum_guide") as create_guide,
             patch.object(channel_refresh, "update_forum_guide") as update_guide,
             patch.object(channel_refresh, "find_version_message", return_value="current"),
+            patch.object(channel_refresh, "refresh_channel_post", return_value=False),
             patch.object(channel_refresh, "post_and_pin"),
         ):
             channel_refresh.apply()
@@ -244,6 +248,39 @@ class ChannelRefreshTests(unittest.TestCase):
             [{"id": 0, "filename": "forge-education-education-hub.png"}],
         )
         self.assertNotIn("image", payload["embeds"][0])
+
+    def test_rules_artwork_refresh_replaces_message_with_one_attachment(self):
+        embeds = channel_refresh.build_public_channel_embeds({})["rules-explained"]
+        responses = [
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {"embeds": embeds, "attachments": []},
+            ),
+            SimpleNamespace(status_code=200, json=lambda: {}),
+        ]
+
+        with patch.object(channel_refresh, "request", side_effect=responses) as api_request:
+            refreshed = channel_refresh.refresh_channel_post(
+                "rules-channel",
+                "rules-message",
+                embeds,
+                "rules-explained.png",
+            )
+
+        self.assertTrue(refreshed)
+        patch_call = api_request.call_args_list[1]
+        self.assertEqual(
+            patch_call.args[:2],
+            ("PATCH", "/channels/rules-channel/messages/rules-message"),
+        )
+        payload = __import__("json").loads(
+            patch_call.kwargs["files"]["payload_json"][1]
+        )
+        self.assertEqual(
+            payload["attachments"],
+            [{"id": 0, "filename": "rules-explained.png"}],
+        )
+        self.assertFalse(any(embed.get("image") for embed in payload["embeds"]))
 
 
 if __name__ == "__main__":
