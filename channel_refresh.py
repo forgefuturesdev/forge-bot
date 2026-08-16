@@ -780,11 +780,11 @@ def desired_forum_payload() -> dict:
         "default_forum_layout": 2,
         "default_sort_order": 0,
         "available_tags": [
-            {"name": "Start Here", "moderated": False, "emoji_name": "??"},
-            {"name": "Platform", "moderated": False, "emoji_name": "???"},
-            {"name": "Risk", "moderated": False, "emoji_name": "???"},
-            {"name": "Payouts", "moderated": False, "emoji_name": "?"},
-            {"name": "Psychology", "moderated": False, "emoji_name": "??"},
+            {"name": "Start Here", "moderated": False, "emoji_name": "🧭"},
+            {"name": "Platform", "moderated": False, "emoji_name": "🖥️"},
+            {"name": "Risk", "moderated": False, "emoji_name": "🛡️"},
+            {"name": "Payouts", "moderated": False, "emoji_name": "✅"},
+            {"name": "Psychology", "moderated": False, "emoji_name": "🧠"},
         ],
         "permission_overwrites": [
             {
