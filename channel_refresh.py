@@ -900,8 +900,11 @@ def guide_attachment_name(guide: dict, prefix: str = "forge-education") -> str:
 def embeds_for_attachment(guide: dict, attachment_name: str) -> list[dict]:
     embeds = json.loads(json.dumps(guide["embeds"]))
     for embed in embeds:
-        if embed.get("image"):
-            embed["image"] = {"url": f"attachment://{attachment_name}"}
+        # Discord renders an uploaded image attachment on its own. Binding the
+        # same file as a rich-embed image makes forum gallery cards show it
+        # twice, so the managed message carries one attachment and text-only
+        # rich embeds.
+        embed.pop("image", None)
     return embeds
 
 
@@ -1009,6 +1012,10 @@ def update_forum_guide(
         len(current_attachments) == 1
         and str(current_attachments[0].get("filename")) == attachment_name
     )
+    layout_is_current = not any(
+        embed.get("title") and embed.get("image")
+        for embed in current_embeds
+    )
 
     if str(thread.get("name")) != guide["name"]:
         expect(
@@ -1023,7 +1030,7 @@ def update_forum_guide(
         )
 
     copy_is_current = embed_copy_signature(current_embeds) == embed_copy_signature(desired_embeds)
-    if not copy_is_current or not artwork_is_current:
+    if not copy_is_current or not artwork_is_current or not layout_is_current:
         payload = {
             "allowed_mentions": {"parse": []},
             "embeds": desired_embeds,
@@ -1145,14 +1152,14 @@ def verify() -> None:
         )
         if embed_copy_signature(message.get("embeds", [])) != embed_copy_signature(guide["embeds"]):
             raise DiscordError(f"Education guide copy is stale: {guide['name']}")
-        image_embeds = [
-            embed
-            for embed in message.get("embeds", [])
-            if embed.get("image", {}).get("url")
-        ]
         attachments = message.get("attachments", [])
         expected_filename = guide_attachment_name(guide)
-        if len(image_embeds) != 1 or len(attachments) != 1:
+        rich_image_embeds = [
+            embed
+            for embed in message.get("embeds", [])
+            if embed.get("title") and embed.get("image", {}).get("url")
+        ]
+        if rich_image_embeds or len(attachments) != 1:
             raise DiscordError(f"Education guide must show exactly one image: {guide['name']}")
         if str(attachments[0].get("filename")) != expected_filename:
             raise DiscordError(f"Education guide artwork is stale: {guide['name']}")

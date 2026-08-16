@@ -662,14 +662,14 @@ def verify_guide_forum(
         )
         if public_info.embed_copy_signature(message.get("embeds", [])) != public_info.embed_copy_signature(guide["embeds"]):
             raise public_info.DiscordError(f"{label} guide copy is stale: {guide['name']}")
-        image_embeds = [
-            embed
-            for embed in message.get("embeds", [])
-            if embed.get("image", {}).get("url")
-        ]
         attachments = message.get("attachments", [])
         expected_filename = public_info.guide_attachment_name(guide, attachment_prefix)
-        if len(image_embeds) != 1 or len(attachments) != 1:
+        rich_image_embeds = [
+            embed
+            for embed in message.get("embeds", [])
+            if embed.get("title") and embed.get("image", {}).get("url")
+        ]
+        if rich_image_embeds or len(attachments) != 1:
             raise public_info.DiscordError(
                 f"{label} guide must show exactly one image: {guide['name']}"
             )
