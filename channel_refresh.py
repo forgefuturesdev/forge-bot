@@ -46,7 +46,7 @@ LEGACY_FORUM_NAMES = ("education-hub",)
 ASSET_DIR = Path(__file__).resolve().parent / "assets" / "education"
 PUBLIC_ASSET_DIR = Path(__file__).resolve().parent / "assets" / "public-information"
 CHANNEL_ASSETS = {
-    "rules-explained": "rules-explained.png",
+    "rules-explained": "rules-explained-v2.png",
 }
 CHANNEL_NAMES = (
     "welcome",

@@ -264,7 +264,7 @@ class ChannelRefreshTests(unittest.TestCase):
                 "rules-channel",
                 "rules-message",
                 embeds,
-                "rules-explained.png",
+                channel_refresh.CHANNEL_ASSETS["rules-explained"],
             )
 
         self.assertTrue(refreshed)
@@ -278,7 +278,12 @@ class ChannelRefreshTests(unittest.TestCase):
         )
         self.assertEqual(
             payload["attachments"],
-            [{"id": 0, "filename": "rules-explained.png"}],
+            [
+                {
+                    "id": 0,
+                    "filename": channel_refresh.CHANNEL_ASSETS["rules-explained"],
+                }
+            ],
         )
         self.assertFalse(any(embed.get("image") for embed in payload["embeds"]))
 
