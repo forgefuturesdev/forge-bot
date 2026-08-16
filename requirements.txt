@@ -1,4 +1,4 @@
-aiohttp>=3.9.0
-ddgs>=9.5.2
-feedparser>=6.0.11
-requests>=2.31.0
+aiohttp==3.14.3
+ddgs==9.5.2
+feedparser==6.0.14
+requests==2.34.2

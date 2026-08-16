@@ -12,6 +12,7 @@ import re
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 sys.stdout.reconfigure(line_buffering=True)
 
@@ -22,6 +23,29 @@ GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "1474405047679848643")
 BOT_ID = os.environ.get("DISCORD_BOT_ID", "1482017269092716645")
 BASE = "https://discord.com/api/v10"
 GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json"
+
+TARGET_GUILD_EVENTS = {
+    "GUILD_BAN_ADD",
+    "GUILD_BAN_REMOVE",
+    "GUILD_MEMBER_ADD",
+    "GUILD_MEMBER_REMOVE",
+    "INTERACTION_CREATE",
+    "MESSAGE_CREATE",
+    "MESSAGE_DELETE",
+    "MESSAGE_REACTION_ADD",
+    "MESSAGE_REACTION_REMOVE",
+    "MESSAGE_UPDATE",
+}
+TICKET_CLOSE_COMMANDS = {"!close", "!closeticket", "!done"}
+TICKET_ATTACHMENT_HOSTS = {"cdn.discordapp.com", "media.discordapp.net"}
+TICKET_ATTACHMENT_MAX_COUNT = 10
+TICKET_ATTACHMENT_MAX_TOTAL_BYTES = 25 * 1024 * 1024
+TICKET_ATTACHMENT_TIMEOUT_SECONDS = 15
+
+
+def is_target_guild_event(data):
+    """Return True only for events from the configured Forge guild."""
+    return data.get("guild_id") == GUILD_ID
 
 # ============================================================
 # CONFIGURATION
@@ -168,6 +192,138 @@ class ForgeBot:
         except Exception as e:
             print(f"API Error: {e}")
             return None
+
+    async def api_multipart(self, path, payload, files):
+        """Post a Discord message with copied attachments."""
+        headers = {"Authorization": f"Bot {TOKEN}"}
+        url = f"{BASE}{path}"
+        form = aiohttp.FormData()
+        form.add_field("payload_json", json.dumps(payload), content_type="application/json")
+        for index, file in enumerate(files):
+            form.add_field(
+                f"files[{index}]",
+                file["content"],
+                filename=file["filename"],
+                content_type=file["content_type"],
+            )
+
+        try:
+            async with self.session.post(url, headers=headers, data=form) as resp:
+                if resp.status == 429:
+                    retry = (await resp.json()).get("retry_after", 1)
+                    await asyncio.sleep(retry + 0.5)
+                    return await self.api_multipart(path, payload, files)
+                if resp.status in [200, 201]:
+                    return await resp.json()
+
+                text = await resp.text()
+                print(f"API {resp.status}: POST {path} -> {text[:150]}")
+                return None
+        except Exception as e:
+            print(f"API multipart error: {e}")
+            return None
+
+    async def download_ticket_attachments(self, attachments):
+        """Copy trusted Discord attachments before deleting the staff message."""
+        if len(attachments) > TICKET_ATTACHMENT_MAX_COUNT:
+            return None
+
+        try:
+            expected_total = sum(int(item.get("size", 0)) for item in attachments)
+        except (TypeError, ValueError):
+            return None
+        if expected_total > TICKET_ATTACHMENT_MAX_TOTAL_BYTES:
+            return None
+
+        files = []
+        actual_total = 0
+        for index, attachment in enumerate(attachments):
+            url = attachment.get("url", "")
+            parsed = urlparse(url)
+            if parsed.scheme != "https" or parsed.hostname not in TICKET_ATTACHMENT_HOSTS:
+                return None
+
+            try:
+                timeout = aiohttp.ClientTimeout(total=TICKET_ATTACHMENT_TIMEOUT_SECONDS)
+                async with self.session.get(url, timeout=timeout) as resp:
+                    if resp.status != 200:
+                        return None
+                    content = await resp.read()
+            except Exception:
+                return None
+
+            actual_total += len(content)
+            if actual_total > TICKET_ATTACHMENT_MAX_TOTAL_BYTES:
+                return None
+
+            filename = os.path.basename(attachment.get("filename", "")) or f"attachment-{index + 1}"
+            files.append({
+                "content": content,
+                "content_type": attachment.get("content_type") or "application/octet-stream",
+                "filename": filename,
+            })
+
+        return files
+
+    async def relay_ticket_staff_message(self, data):
+        """Relay a staff reply without losing content, attachments or audit attribution."""
+        channel_id = data.get("channel_id")
+        message_id = data.get("id")
+        author = data.get("author", {})
+        attachments = data.get("attachments", []) or []
+        files = await self.download_ticket_attachments(attachments) if attachments else []
+
+        if files is None:
+            await self.log(
+                "Ticket Relay Preserved Original",
+                f"Could not safely copy attachments from **{author.get('username', 'Unknown')}** (`{author.get('id')}`) in <#{channel_id}>. The original message was left untouched.",
+                0xE67E22,
+            )
+            return False
+
+        payload = {
+            "embeds": [{
+                "description": data.get("content") or "*Attachment from the Forge Team*",
+                "color": 0xFE602F,
+                "author": {"name": "Forge Team"},
+            }],
+            "allowed_mentions": {"parse": []},
+        }
+        if files:
+            payload["attachments"] = [
+                {"id": index, "filename": file["filename"]}
+                for index, file in enumerate(files)
+            ]
+            relay = await self.api_multipart(f"/channels/{channel_id}/messages", payload, files)
+        else:
+            relay = await self.api("POST", f"/channels/{channel_id}/messages", payload)
+
+        if relay is None:
+            await self.log(
+                "Ticket Relay Preserved Original",
+                f"Relay failed for **{author.get('username', 'Unknown')}** (`{author.get('id')}`) in <#{channel_id}>. The original message was left untouched.",
+                0xE67E22,
+            )
+            return False
+
+        deleted = await self.api("DELETE", f"/channels/{channel_id}/messages/{message_id}")
+        if deleted is None:
+            relay_id = relay.get("id")
+            if relay_id:
+                await self.api("DELETE", f"/channels/{channel_id}/messages/{relay_id}")
+            await self.log(
+                "Ticket Relay Preserved Original",
+                f"Original deletion failed for **{author.get('username', 'Unknown')}** (`{author.get('id')}`) in <#{channel_id}>. The relayed copy was rolled back where possible.",
+                0xE67E22,
+            )
+            return False
+
+        await self.log(
+            "Ticket Staff Reply",
+            f"**{author.get('username', 'Unknown')}** (`{author.get('id')}`) replied in <#{channel_id}> via relay `{relay.get('id', 'unknown')}` with {len(files)} attachment(s).",
+            0x3498DB,
+        )
+        return True
 
     async def log(self, title, description, color=0x95A5A6):
         """Send a log entry to #mod-logs."""
@@ -596,6 +752,9 @@ class ForgeBot:
     # ============================================================
     
     async def handle_message(self, data):
+        if not is_target_guild_event(data):
+            return
+
         author = data.get('author', {})
         user_id = author.get('id')
         username = author.get('username', 'Unknown')
@@ -655,62 +814,16 @@ class ForgeBot:
                 })
 
         # --- TICKET STAFF RELAY (hide admin identity) ---
-        if member_roles & STAFF_ROLES and content_lower not in ['!close', '!closeticket', '!done']:
+        if member_roles & STAFF_ROLES and content_lower not in TICKET_CLOSE_COMMANDS:
             # Check if this is a ticket thread
             channel_data = await self.api("GET", f"/channels/{channel_id}")
             if channel_data and channel_data.get('parent_id') == CHANNELS['open_ticket']:
-                # It's a staff member in a ticket — relay through bot
-                await self.api("DELETE", f"/channels/{channel_id}/messages/{message_id}")
-                await self.api("POST", f"/channels/{channel_id}/messages", {
-                    "embeds": [{
-                        "description": content,
-                        "color": 0xFE602F,
-                        "author": {"name": "Forge Team"},
-                    }]
-                })
+                # Delete only after a confirmed replacement has been posted.
+                await self.relay_ticket_staff_message(data)
                 return
 
         # --- TICKET CLOSE COMMAND ---
-        if content_lower in ['!close', '!closeticket', '!done']:
-            # Check if this is a ticket thread
-            channel_data = await self.api("GET", f"/channels/{channel_id}")
-            if channel_data and channel_data.get('parent_id') == CHANNELS['open_ticket']:
-                # It's a ticket thread — close it
-                username = author.get('username', 'Unknown')
-                await self.api("POST", f"/channels/{channel_id}/messages", {
-                    "embeds": [{
-                        "title": "🔒 Ticket Closed",
-                        "description": f"This ticket was closed by **{username}**.\n\nIf you need further help, open a new ticket in <#{CHANNELS['open_ticket']}>.",
-                        "color": 0xE74C3C,
-                    }]
-                })
-                # Archive and lock the thread
-                await self.api("PATCH", f"/channels/{channel_id}", {
-                    "archived": True,
-                    "locked": True
-                })
-                await self.log("🔒 Ticket Closed", f"Ticket in <#{channel_id}> closed by **{username}**.", 0xE74C3C)
-                print(f"  🔒 Ticket closed by {username}")
-                return
-        
-        # --- TICKET STAFF RELAY (hide admin identity) ---
-        if member_roles & STAFF_ROLES and content_lower not in ['!close', '!closeticket', '!done']:
-            # Check if this is a ticket thread
-            channel_data = await self.api("GET", f"/channels/{channel_id}")
-            if channel_data and channel_data.get('parent_id') == CHANNELS['open_ticket']:
-                # It's a staff member in a ticket — relay through bot
-                await self.api("DELETE", f"/channels/{channel_id}/messages/{message_id}")
-                await self.api("POST", f"/channels/{channel_id}/messages", {
-                    "embeds": [{
-                        "description": content,
-                        "color": 0xFE602F,
-                        "author": {"name": "Forge Team"},
-                    }]
-                })
-                return
-        
-        # --- TICKET CLOSE COMMAND ---
-        if content_lower in ['!close', '!closeticket', '!done']:
+        if content_lower in TICKET_CLOSE_COMMANDS:
             # Check if this is a ticket thread
             channel_data = await self.api("GET", f"/channels/{channel_id}")
             if channel_data and channel_data.get('parent_id') == CHANNELS['open_ticket']:
@@ -802,6 +915,9 @@ class ForgeBot:
     # ============================================================
     
     async def handle_message_update(self, data):
+        if not is_target_guild_event(data):
+            return
+
         author = data.get('author', {})
         if author.get('bot'):
             return
@@ -816,6 +932,9 @@ class ForgeBot:
                 0x3498DB)
     
     async def handle_message_delete(self, data):
+        if not is_target_guild_event(data):
+            return
+
         channel_id = data.get('channel_id')
         msg_id = data.get('id')
         # We don't have the content of deleted messages without caching
@@ -870,8 +989,8 @@ class ForgeBot:
                     # Identify with all needed intents
                     # GUILDS(1) | GUILD_MEMBERS(2) | GUILD_MODERATION(4) | 
                     # GUILD_MESSAGE_REACTIONS(1024) | GUILD_MESSAGES(512) |
-                    # MESSAGE_CONTENT(32768) | DIRECT_MESSAGES(4096)
-                    intents = 1 | 2 | 4 | 512 | 1024 | 4096 | 32768
+                    # MESSAGE_CONTENT(32768). Direct-message events are intentionally excluded.
+                    intents = 1 | 2 | 4 | 512 | 1024 | 32768
                     
                     await ws.send_json({
                         "op": 2,
@@ -900,7 +1019,8 @@ class ForgeBot:
                                     await self.log("🤖 Bot Online", 
                                         "Forge Marketing bot connected and monitoring.", 0x2ECC71)
                                     print("  ✅ Ready!")
-                                    
+                                elif event in TARGET_GUILD_EVENTS and not is_target_guild_event(d):
+                                    continue
                                 elif event == 'MESSAGE_REACTION_ADD':
                                     await self.handle_reaction_add(d)
                                 elif event == 'MESSAGE_REACTION_REMOVE':

@@ -126,15 +126,6 @@ def build_us_briefing():
     
     news = get_news("stock+market+US+S%26P+Nasdaq+today")
     
-    es_levels = ""
-    if es.get("price"):
-        p = es["price"]
-        es_levels = f"**ES** Support: {round(p-50,-1):,.0f} / {round(p-100,-1):,.0f}  ◆  Resistance: {round(p+50,-1):,.0f} / {round(p+100,-1):,.0f}"
-    nq_levels = ""
-    if nq.get("price"):
-        p = nq["price"]
-        nq_levels = f"\n**NQ** Support: {round(p-200,-2):,.0f} / {round(p-400,-2):,.0f}  ◆  Resistance: {round(p+200,-2):,.0f} / {round(p+400,-2):,.0f}"
-    
     news_text = "\n".join(f"◆ {n}" for n in news[:5]) or "◆ No major headlines"
     
     return {
@@ -146,7 +137,6 @@ def build_us_briefing():
              "value": f"```\nES  (S&P 500)   {fmt(es.get('price'))}   {es_arr} {es_chg}\nNQ  (Nasdaq)   {fmt(nq.get('price'))}   {nq_arr} {nq_chg}\n```"},
             {"name": "━━  MACRO  ━━", "inline": False,
              "value": f"```\nVIX            {fmt(vix.get('price'))}   ({vix_label})\nDXY            {fmt(dxy.get('price'),3)}\n10Y Yield      {fmt(tnx.get('price'),3)}%\nCrude Oil    ${fmt(oil.get('price'))}\nGold         ${fmt(gold.get('price'))}\n```"},
-            {"name": "━━  KEY LEVELS  ━━", "inline": False, "value": es_levels + nq_levels},
             {"name": "━━  HEADLINES  ━━", "inline": False, "value": news_text},
         ],
         "footer": {"text": "Forge Futures ◆ Next: Asia Open (11:30 PM GMT)"},
