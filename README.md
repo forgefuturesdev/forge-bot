@@ -81,6 +81,33 @@ Forge icon, website, source links and information-only disclaimer. The bot
 avatar is managed through the Discord application profile and remains a clean
 Blaze avatar without additional text or stamps.
 
+## Public information and Education refresh
+
+`channel_refresh.py` manages a versioned, information-only Education forum plus
+current pinned posts in Welcome, FAQ, Rules Explained, Promotions, Platform
+Status and Links. The operation is additive: legacy messages and channels are
+not deleted, renamed or hidden.
+
+Run the read-only live plan first:
+
+```bash
+python channel_refresh.py plan
+```
+
+Apply and verify the refresh only after reviewing that plan:
+
+```bash
+python channel_refresh.py apply
+python channel_refresh.py verify
+```
+
+The matching rollback removes only messages and the forum carrying this
+release's managed marker. It does not touch legacy content:
+
+```bash
+python channel_refresh.py rollback
+```
+
 ## Validation
 
 ```bash
