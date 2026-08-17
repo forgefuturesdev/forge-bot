@@ -12,12 +12,13 @@ import requests
 from newsroom import (
     FORGE_ORANGE,
     brand_embed,
+    fetch_economic_calendar,
     filter_unseen_news,
     headline_category,
+    headline_fields,
     post_discord as send_discord,
     recent_channel_links,
     render_calendar_events,
-    render_headlines,
     render_market_lens,
     select_calendar_events,
 )
@@ -73,15 +74,10 @@ def calendar_fields(
 
 
 def get_economic_calendar() -> list[dict]:
-    try:
-        response = requests.get(
-            "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
-            headers=SOURCE_HEADERS,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        return response.json() if response.status_code == 200 else []
-    except (requests.RequestException, TypeError, ValueError):
-        return []
+    return fetch_economic_calendar(
+        headers=SOURCE_HEADERS,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
 
 
 def post_daily_calendar() -> bool:
@@ -175,12 +171,11 @@ def post_market_news() -> bool:
                 "headlines selected for index-futures traders."
             ),
             "color": FORGE_ORANGE,
-            "fields": [
-                {
-                    "name": "WHAT'S MOVING",
-                    "value": render_headlines(fresh_news, limit=5),
-                    "inline": False,
-                },
+            "fields": headline_fields(
+                fresh_news,
+                title="WHAT'S MOVING",
+                limit=5,
+            ) + [
                 {
                     "name": "TRADER LENS",
                     "value": render_market_lens(fresh_news),
