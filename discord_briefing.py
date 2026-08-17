@@ -12,12 +12,13 @@ import requests
 from newsroom import (
     FORGE_ORANGE,
     brand_embed,
+    fetch_economic_calendar,
     filter_unseen_news,
     headline_category,
+    headline_fields,
     post_discord,
     recent_channel_links,
     render_calendar_events,
-    render_headlines,
     render_market_lens,
     select_calendar_events,
 )
@@ -148,15 +149,10 @@ def get_news(query: str, count: int = 10) -> list[dict]:
 
 
 def get_calendar_feed() -> list[dict]:
-    try:
-        response = requests.get(
-            "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
-            headers=YAHOO_HEADERS,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        return response.json() if response.status_code == 200 else []
-    except (requests.RequestException, TypeError, ValueError):
-        return []
+    return fetch_economic_calendar(
+        headers=YAHOO_HEADERS,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
 
 
 def format_price(value: object, decimals: int = 2) -> str:
@@ -242,11 +238,11 @@ def build_briefing(session: str) -> dict:
                 "value": render_calendar_events(calendar, limit=4),
                 "inline": False,
             },
-            {
-                "name": "WHAT'S MOVING",
-                "value": render_headlines(headlines, limit=4),
-                "inline": False,
-            },
+        ] + headline_fields(
+            headlines,
+            title="WHAT'S MOVING",
+            limit=4,
+        ) + [
             {
                 "name": "TRADER LENS",
                 "value": render_market_lens(headlines),

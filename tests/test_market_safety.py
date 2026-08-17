@@ -33,6 +33,38 @@ class MarketSafetyTests(unittest.TestCase):
             self.assertLessEqual(len(field.get("name", "")), 256)
             self.assertLessEqual(len(field.get("value", "")), 1024)
 
+    def test_market_news_splits_long_headlines_before_delivery(self):
+        news = [
+            {
+                "title": f"Market headline {index} " + ("x" * 120),
+                "url": f"https://example.com/story/{index}?detail=" + ("y" * 240),
+                "source": "Example source",
+                "category": "Markets",
+            }
+            for index in range(5)
+        ]
+        captured = []
+
+        def capture_post(channel, embeds, *, publish=False):
+            captured.extend(embeds)
+            return True
+
+        with patch.object(market_feed, "get_market_news", return_value=news), patch.object(
+            market_feed,
+            "recent_channel_links",
+            return_value=set(),
+        ), patch.object(market_feed, "post_discord", side_effect=capture_post):
+            posted = market_feed.post_market_news()
+
+        self.assertTrue(posted)
+        moving_fields = [
+            field
+            for field in captured[0]["fields"]
+            if field["name"].startswith("WHAT'S MOVING")
+        ]
+        self.assertGreater(len(moving_fields), 1)
+        self.assert_embed_limits(captured[0])
+
     def test_us_briefing_does_not_invent_support_or_resistance(self):
         with patch.object(
             discord_briefing,

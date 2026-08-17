@@ -8,6 +8,7 @@ import json
 import os
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+import xml.etree.ElementTree as ElementTree
 from zoneinfo import ZoneInfo
 
 import requests
@@ -15,6 +16,17 @@ import requests
 
 DISCORD_BASE = "https://discord.com/api/v10"
 DISCORD_TIMEOUT_SECONDS = 15
+DISCORD_EMBED_COUNT_LIMIT = 10
+DISCORD_EMBED_TOTAL_LIMIT = 6000
+DISCORD_FIELD_COUNT_LIMIT = 25
+DISCORD_FIELD_NAME_LIMIT = 256
+DISCORD_FIELD_VALUE_LIMIT = 1024
+DISCORD_TITLE_LIMIT = 256
+DISCORD_DESCRIPTION_LIMIT = 4096
+DISCORD_FOOTER_LIMIT = 2048
+CALENDAR_JSON_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+CALENDAR_XML_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"
+CALENDAR_REQUEST_ATTEMPTS = 2
 FORGE_ORANGE = 0xFE602F
 FORGE_SITE_URL = os.environ.get("FORGE_SITE_URL", "https://forge-futures.com")
 FORGE_DISCORD_URL = os.environ.get(
@@ -87,7 +99,68 @@ def markdown_link(title: object, url: object) -> str | None:
     safe_url = safe_https_url(url)
     if not safe_url:
         return None
+    if len(safe_url) > 700:
+        parsed = urlsplit(safe_url)
+        safe_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    if len(safe_url) > 700:
+        return None
     return f"[{clean_text(title, 130)}]({safe_url})"
+
+
+def embed_character_count(embed: dict) -> int:
+    total = len(str(embed.get("title") or ""))
+    total += len(str(embed.get("description") or ""))
+    total += len(str(embed.get("footer", {}).get("text") or ""))
+    total += len(str(embed.get("author", {}).get("name") or ""))
+    for field in embed.get("fields", []):
+        total += len(str(field.get("name") or ""))
+        total += len(str(field.get("value") or ""))
+    return total
+
+
+def validate_embeds(embeds: list[dict]) -> str | None:
+    if not 1 <= len(embeds) <= DISCORD_EMBED_COUNT_LIMIT:
+        return f"embed count must be 1-{DISCORD_EMBED_COUNT_LIMIT}"
+    for embed_index, embed in enumerate(embeds, start=1):
+        if len(str(embed.get("title") or "")) > DISCORD_TITLE_LIMIT:
+            return f"embed {embed_index} title exceeds {DISCORD_TITLE_LIMIT} characters"
+        if len(str(embed.get("description") or "")) > DISCORD_DESCRIPTION_LIMIT:
+            return (
+                f"embed {embed_index} description exceeds "
+                f"{DISCORD_DESCRIPTION_LIMIT} characters"
+            )
+        if len(str(embed.get("footer", {}).get("text") or "")) > DISCORD_FOOTER_LIMIT:
+            return f"embed {embed_index} footer exceeds {DISCORD_FOOTER_LIMIT} characters"
+        fields = embed.get("fields", [])
+        if len(fields) > DISCORD_FIELD_COUNT_LIMIT:
+            return f"embed {embed_index} has more than {DISCORD_FIELD_COUNT_LIMIT} fields"
+        for field_index, field in enumerate(fields, start=1):
+            if len(str(field.get("name") or "")) > DISCORD_FIELD_NAME_LIMIT:
+                return (
+                    f"embed {embed_index} field {field_index} name exceeds "
+                    f"{DISCORD_FIELD_NAME_LIMIT} characters"
+                )
+            if len(str(field.get("value") or "")) > DISCORD_FIELD_VALUE_LIMIT:
+                return (
+                    f"embed {embed_index} field {field_index} value exceeds "
+                    f"{DISCORD_FIELD_VALUE_LIMIT} characters"
+                )
+        if embed_character_count(embed) > DISCORD_EMBED_TOTAL_LIMIT:
+            return f"embed {embed_index} exceeds {DISCORD_EMBED_TOTAL_LIMIT} characters"
+    return None
+
+
+def discord_error_summary(response: object) -> str:
+    try:
+        payload = response.json()
+    except (TypeError, ValueError, AttributeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        return ""
+    code = clean_text(payload.get("code"), 30)
+    message = clean_text(payload.get("message"), 160)
+    details = " · ".join(part for part in (code, message) if part)
+    return f" ({details})" if details else ""
 
 
 def brand_embed(
@@ -127,6 +200,12 @@ def post_discord(
     *,
     publish: bool = False,
 ) -> DeliveryResult:
+    validation_error = validate_embeds(embeds)
+    if validation_error:
+        error = f"Discord payload rejected locally: {validation_error}"
+        print(error)
+        return DeliveryResult(False, error=error)
+
     payload = {
         "allowed_mentions": {"parse": []},
         "embeds": embeds,
@@ -144,7 +223,10 @@ def post_discord(
         return DeliveryResult(False, error=error)
 
     if response.status_code not in (200, 201):
-        error = f"Discord post failed with HTTP {response.status_code}"
+        error = (
+            f"Discord post failed with HTTP {response.status_code}"
+            f"{discord_error_summary(response)}"
+        )
         print(error)
         return DeliveryResult(False, error=error)
 
@@ -168,7 +250,10 @@ def post_discord(
         return DeliveryResult(False, message_id=message_id, error=error)
 
     if crosspost.status_code not in (200, 201):
-        error = f"Discord publish failed with HTTP {crosspost.status_code}"
+        error = (
+            f"Discord publish failed with HTTP {crosspost.status_code}"
+            f"{discord_error_summary(crosspost)}"
+        )
         print(error)
         return DeliveryResult(False, message_id=message_id, error=error)
     return DeliveryResult(True, message_id=message_id, published=True)
@@ -253,18 +338,56 @@ MARKET_LENS = {
 }
 
 
-def render_headlines(items: list[dict], *, limit: int = 5) -> str:
-    lines: list[str] = []
+def headline_blocks(items: list[dict], *, limit: int = 5) -> list[str]:
+    blocks: list[str] = []
     for item in items[:limit]:
         link = markdown_link(item.get("title"), item.get("url"))
         if not link:
             continue
         source = clean_text(item.get("source") or urlsplit(item["url"]).netloc, 45)
         category = clean_text(item.get("category") or headline_category(item.get("title")), 35)
-        lines.append(f"**{category}** · {link}\n{source}")
-    if not lines:
+        block = f"**{category}** · {link}\n{source}"
+        if len(block) <= DISCORD_FIELD_VALUE_LIMIT:
+            blocks.append(block)
+    return blocks
+
+
+def render_headlines(items: list[dict], *, limit: int = 5) -> str:
+    blocks = headline_blocks(items, limit=limit)
+    if not blocks:
         return "No fresh, non-duplicate headlines were returned by the current sources."
-    return "\n\n".join(lines)
+    return "\n\n".join(blocks)
+
+
+def headline_fields(items: list[dict], *, title: str, limit: int = 5) -> list[dict]:
+    blocks = headline_blocks(items, limit=limit)
+    if not blocks:
+        return [{
+            "name": title,
+            "value": "No fresh, non-duplicate headlines were returned by the current sources.",
+            "inline": False,
+        }]
+
+    chunks: list[str] = []
+    current: list[str] = []
+    for block in blocks:
+        candidate = "\n\n".join([*current, block])
+        if current and len(candidate) > DISCORD_FIELD_VALUE_LIMIT:
+            chunks.append("\n\n".join(current))
+            current = [block]
+        else:
+            current.append(block)
+    if current:
+        chunks.append("\n\n".join(current))
+
+    return [
+        {
+            "name": title if index == 0 else f"{title} · CONTINUED {index + 1}",
+            "value": chunk,
+            "inline": False,
+        }
+        for index, chunk in enumerate(chunks)
+    ]
 
 
 def render_market_lens(items: list[dict], *, limit: int = 3) -> str:
@@ -276,6 +399,83 @@ def render_market_lens(items: list[dict], *, limit: int = 3) -> str:
     if not categories:
         return "Stay alert to scheduled releases and verify market information with primary sources."
     return "\n".join(f"• {MARKET_LENS[category]}" for category in categories[:limit])
+
+
+def parse_calendar_xml(payload: bytes) -> list[dict]:
+    try:
+        root = ElementTree.fromstring(payload)
+    except ElementTree.ParseError:
+        return []
+
+    events: list[dict] = []
+    for node in root.findall(".//event"):
+        date_value = str(node.findtext("date") or "").strip()
+        time_value = str(node.findtext("time") or "").strip().replace(" ", "")
+        parsed_date: datetime | None = None
+        for date_format in ("%m-%d-%Y %I:%M%p", "%m-%d-%Y %H:%M"):
+            try:
+                parsed_date = datetime.strptime(
+                    f"{date_value} {time_value}",
+                    date_format,
+                )
+                break
+            except ValueError:
+                continue
+        if not parsed_date:
+            continue
+        events.append({
+            "title": str(node.findtext("title") or "").strip(),
+            "country": str(node.findtext("country") or "").strip(),
+            "date": parsed_date.isoformat(),
+            "impact": str(node.findtext("impact") or "").strip(),
+            "forecast": str(node.findtext("forecast") or "").strip(),
+            "previous": str(node.findtext("previous") or "").strip(),
+        })
+    return events
+
+
+def fetch_economic_calendar(
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: int = 10,
+) -> list[dict]:
+    for attempt in range(1, CALENDAR_REQUEST_ATTEMPTS + 1):
+        try:
+            response = requests.get(
+                CALENDAR_JSON_URL,
+                headers=headers,
+                timeout=timeout,
+            )
+            if response.status_code == 200:
+                events = response.json()
+                if isinstance(events, list) and events:
+                    return events
+            else:
+                print(
+                    "Economic calendar JSON returned HTTP "
+                    f"{response.status_code} (attempt {attempt})"
+                )
+        except (requests.RequestException, TypeError, ValueError) as exc:
+            print(
+                "Economic calendar JSON request failed: "
+                f"{type(exc).__name__} (attempt {attempt})"
+            )
+
+    try:
+        response = requests.get(
+            CALENDAR_XML_URL,
+            headers=headers,
+            timeout=timeout,
+        )
+        if response.status_code == 200:
+            events = parse_calendar_xml(response.content)
+            if events:
+                return events
+        else:
+            print(f"Economic calendar XML returned HTTP {response.status_code}")
+    except requests.RequestException as exc:
+        print(f"Economic calendar XML request failed: {type(exc).__name__}")
+    return []
 
 
 def parse_event_datetime(value: object) -> datetime | None:
