@@ -6,6 +6,23 @@ import community_refresh as refresh
 
 
 class CommunityRefreshTests(unittest.TestCase):
+    def test_system_pin_notice_is_preserved_not_edited(self):
+        with patch.object(refresh, 'call') as call:
+            refresh.redirect_superseded('channel', {'id': 'notice', 'type': 6, 'author': {'id': refresh.api.BOT_ID}}, 'guide')
+            call.assert_not_called()
+
+    def test_superseded_bot_guide_is_redirected_without_mentions(self):
+        with patch.object(refresh, 'call') as call:
+            refresh.redirect_superseded('channel', {'id': 'old', 'type': 0, 'author': {'id': refresh.api.BOT_ID}}, 'guide')
+            self.assertEqual(call.call_args.args[:2], ('PATCH', '/channels/channel/messages/old'))
+            self.assertEqual(call.call_args.args[2]['allowed_mentions'], {'parse': []})
+
+    def test_superseded_member_post_cannot_be_modified(self):
+        with patch.object(refresh, 'call') as call:
+            with self.assertRaises(refresh.api.DiscordError):
+                refresh.redirect_superseded('channel', {'id': 'old', 'type': 0, 'author': {'id': 'member'}}, 'guide')
+            call.assert_not_called()
+
     def test_panel_update_preserves_message_id_and_disables_mentions(self):
         spec = refresh.panel('rules', 'Title', 'Text')
         messages = [{'id': 'old', 'author': {'id': refresh.api.BOT_ID}, 'embeds': []}]
