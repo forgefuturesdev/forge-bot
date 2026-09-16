@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
+import hashlib
 import os
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -31,7 +32,7 @@ FORGE_ORANGE = 0xFE602F
 FORGE_SITE_URL = os.environ.get("FORGE_SITE_URL", "https://forge-futures.com")
 FORGE_DISCORD_URL = os.environ.get(
     "FORGE_DISCORD_INVITE_URL",
-    "https://discord.gg/KQSQRgMZZB",
+    "https://discord.gg/FnNjuy2Uj",
 )
 FORGE_ICON_URL = os.environ.get(
     "FORGE_ICON_URL",
@@ -199,6 +200,7 @@ def post_discord(
     embeds: list[dict],
     *,
     publish: bool = False,
+    delivery_key: str | None = None,
 ) -> DeliveryResult:
     validation_error = validate_embeds(embeds)
     if validation_error:
@@ -210,6 +212,11 @@ def post_discord(
         "allowed_mentions": {"parse": []},
         "embeds": embeds,
     }
+    if delivery_key:
+        # Discord deduplicates simultaneous/retried sends for a few minutes.
+        # The briefing's persisted footer key covers later reruns as well.
+        payload["nonce"] = hashlib.sha256(delivery_key.encode()).hexdigest()[:24]
+        payload["enforce_nonce"] = True
     try:
         response = requests.post(
             f"{DISCORD_BASE}/channels/{channel_id}/messages",
@@ -230,13 +237,16 @@ def post_discord(
         print(error)
         return DeliveryResult(False, error=error)
 
-    message_id = str(response.json().get("id") or "") or None
+    posted_message = response.json()
+    message_id = str(posted_message.get("id") or "") or None
     if not publish:
         return DeliveryResult(True, message_id=message_id)
     if not message_id:
         error = "Discord post succeeded without a message id; publishing was skipped"
         print(error)
         return DeliveryResult(False, error=error)
+    if int(posted_message.get("flags", 0)) & 1:
+        return DeliveryResult(True, message_id=message_id, published=True)
 
     try:
         crosspost = requests.post(
