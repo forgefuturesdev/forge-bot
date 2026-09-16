@@ -306,6 +306,20 @@ def bug_channel(channels):
     return matches[0] if matches else None
 
 
+def redirect_superseded(channel_id, old, primary):
+    if str(old.get('author', {}).get('id')) != api.BOT_ID:
+        raise api.DiscordError(f'Superseded message identity mismatch: {old["id"]}')
+    # A bot-authored pin notice is still a Discord system message, not an
+    # editable guide. Preserve it rather than failing a partially applied run.
+    if old.get('type', 0) not in (0, 19):
+        print(f'PRESERVED system notice {old["id"]}', flush=True)
+        return
+    call('PATCH', f'/channels/{channel_id}/messages/{old["id"]}', {
+        'content': f'Updated guide: https://discord.com/channels/{api.GUILD_ID}/{channel_id}/{primary}',
+        'embeds': [], 'attachments': [], 'components': [], 'allowed_mentions': {'parse': []},
+    })
+
+
 def apply():
     channels, roles, staff = preflight()
     community = channels.get(COMMUNITY)
@@ -341,10 +355,7 @@ def apply():
             old = next((m for m in messages if str(m['id']) == old_id), None)
             if not old or str(old.get('author', {}).get('id')) != api.BOT_ID:
                 raise api.DiscordError(f'Superseded message identity mismatch: {old_id}')
-            call('PATCH', f'/channels/{channel["id"]}/messages/{old_id}', {
-                'content': f'Updated guide: https://discord.com/channels/{api.GUILD_ID}/{channel["id"]}/{primary}',
-                'embeds': [], 'attachments': [], 'components': [], 'allowed_mentions': {'parse': []},
-            })
+            redirect_superseded(channel['id'], old, primary)
         print(f'UPDATED #{name}: {len(specs)} panels; member posts preserved', flush=True)
     for channel in channels.values():
         name = api.channel_key(channel['name'])
