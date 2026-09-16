@@ -18,7 +18,7 @@ sys.stdout.reconfigure(line_buffering=True)
 
 import os
 
-import education_upgrade
+import community_refresh
 
 TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "1474405047679848643")
@@ -94,7 +94,7 @@ CHANNELS = {
     "mod_logs": "1482021016820777201",
     "mod_chat": "1482021013163348139",
     "rules": "1474405959806881863",
-    "daily_highlights": "1482020877146263594",
+    "daily_highlights": "1482427993140760636",
 }
 
 CATEGORIES = {
@@ -123,14 +123,14 @@ BLOCKED_PATTERNS = [
 ]
 
 # Allowed invite - our own server
-ALLOWED_INVITES = ['HuC8UsGn']
+ALLOWED_INVITES = ['FnNjuy2Uj']
 
 # Auto-responses for common questions
 AUTO_RESPONSES = {
     "how do i get started": "Read <#{welcome}> for the basics and choose your roles in <#{get_roles}>. Evaluation plans are at https://forge-futures.com/plans",
     "what are the rules": "Full server rules are in <#{rules}>. Challenge trading rules are in <#{rules_explained}>. You can also check https://forge-futures.com/rules",
     "how do payouts work": "Pass the evaluation, complete the required checks and meet the qualified-account payout rules. Traders receive 90% of an approved payout request. Full details are in <#{rules_explained}>.",
-    "how do i open a ticket": "Head to <#{open_ticket}> and click the 🎫 reaction to create a support ticket!",
+    "how do i open a ticket": "Head to <#{open_ticket}> and click Open ticket to create a private support ticket.",
     "when does the market open": "CME Futures: Sunday 6:00 PM – Friday 5:00 PM ET, with a daily halt 5:00-6:00 PM ET.",
     "what can i trade": "Forge supports ES, NQ, MES and MNQ on simulated accounts.",
     "is this a scam": "Forge Futures staff will **NEVER** DM you first. Check <#{verified_staff}> for official team members. If someone DMs you claiming to be staff, report them immediately.",
@@ -174,13 +174,12 @@ class ForgeBot:
         self.raid_mode = False
 
     async def run_education_upgrade(self):
-        """Apply the versioned Education release without blocking heartbeats."""
+        """Verify the current release; never replay obsolete content migrations."""
         try:
-            print("  Applying Forge Education release")
-            await asyncio.to_thread(education_upgrade.apply)
-            print("  Forge Education release verified")
+            await asyncio.to_thread(community_refresh.verify)
+            print("  Forge community release verified")
         except Exception as exc:
-            print(f"  Education release failed safely: {type(exc).__name__}: {exc}")
+            print(f"  Community verification requires attention: {type(exc).__name__}: {exc}")
         
     # ============================================================
     # API HELPERS
@@ -199,10 +198,11 @@ class ForgeBot:
                     return await resp.json() if resp.status != 204 else {}
                 else:
                     text = await resp.text()
-                    print(f"API {resp.status}: {method} {path} -> {text[:150]}")
+                    safe_path = '/interaction-response/[redacted]' if path.startswith(('/interactions/', '/webhooks/')) else path
+                    print(f"API {resp.status}: {method} {safe_path}")
                     return None
         except Exception as e:
-            print(f"API Error: {e}")
+            print(f"API Error: {type(e).__name__}")
             return None
 
     async def api_multipart(self, path, payload, files):
@@ -345,51 +345,27 @@ class ForgeBot:
         })
 
     async def set_member_channel_visibility(self):
-        """Sync target public channels to their live category overwrites and ensure Member can view."""
-        member_role = ROLES['member']
-        view_channel = 1024
+        """Maintain information-channel locks without copying writable category ACLs."""
         target_names = {'faq', 'open-ticket', 'platform-status', 'bug-reports', 'daily-highlights'}
 
         channels = await self.api("GET", f"/guilds/{GUILD_ID}/channels")
         if not channels or isinstance(channels, dict):
             return [('FETCH_CHANNELS', 'guild', False)]
 
-        by_id = {c['id']: c for c in channels}
+        roles = await self.api("GET", f"/guilds/{GUILD_ID}/roles")
+        if not isinstance(roles, list):
+            return [('FETCH_ROLES', 'guild', False)]
         targets = []
         for ch in channels:
-            if ch.get('name', '').lower() in target_names:
+            if community_refresh.api.channel_key(ch.get('name', '')) in target_names:
                 targets.append(ch)
 
         updated = []
         for ch in targets:
             channel_id = ch['id']
             channel_name = ch.get('name', channel_id)
-            parent_id = ch.get('parent_id')
-            overwrites = []
-
-            if parent_id and parent_id in by_id:
-                parent = by_id[parent_id]
-                parent_overwrites = parent.get('permission_overwrites', []) or []
-                # copy parent overwrites first
-                overwrites = [dict(ow) for ow in parent_overwrites]
-            else:
-                overwrites = [dict(ow) for ow in (ch.get('permission_overwrites', []) or [])]
-
-            # ensure Member has view access in resulting overwrite set
-            found_member = False
-            for ow in overwrites:
-                if ow.get('id') == member_role and ow.get('type') == 0:
-                    allow = int(ow.get('allow', '0'))
-                    deny = int(ow.get('deny', '0'))
-                    allow |= view_channel
-                    deny &= ~view_channel
-                    ow['allow'] = str(allow)
-                    ow['deny'] = str(deny)
-                    found_member = True
-                    break
-            if not found_member:
-                overwrites.append({'id': member_role, 'type': 0, 'allow': str(view_channel), 'deny': '0'})
-
+            overwrites = community_refresh.locked_overwrites(
+                ch, roles, ticket=channel_id == CHANNELS['open_ticket'])
             payload = {'permission_overwrites': overwrites}
             result = await self.api("PATCH", f"/channels/{channel_id}", payload)
             updated.append((channel_name, channel_id, bool(result is not None)))
@@ -401,10 +377,12 @@ class ForgeBot:
     # ============================================================
     
     async def setup_reaction_roles(self):
+        self.reaction_roles = {}
+        self.ticket_message_id = None
         msgs = await self.api("GET", f"/channels/{CHANNELS['get_roles']}/messages?limit=10")
-        if not msgs:
-            return
-        for msg in msgs:
+        for msg in msgs or []:
+            if str(msg.get('author', {}).get('id')) != BOT_ID:
+                continue
             embeds = msg.get('embeds', [])
             if not embeds:
                 continue
@@ -422,6 +400,8 @@ class ForgeBot:
         ticket_msgs = await self.api("GET", f"/channels/{CHANNELS['open_ticket']}/messages?limit=5")
         if ticket_msgs:
             for msg in ticket_msgs:
+                if str(msg.get('author', {}).get('id')) != BOT_ID:
+                    continue
                 embeds = msg.get('embeds', [])
                 if embeds and 'Open a Support Ticket' in embeds[0].get('title', ''):
                     self.ticket_message_id = msg['id']
@@ -470,63 +450,66 @@ class ForgeBot:
     # TICKET SYSTEM
     # ============================================================
     
-    async def create_ticket(self, user_id, username):
-        """Create a private thread for the support ticket."""
-        # Cooldown check — prevent double creation
+    async def create_ticket(self, user_id, username, *, bug=False):
+        """Create an invited-only thread; report failure instead of a dead 'creating' toast."""
+        if not user_id:
+            return {"error": "Unable to identify your Discord account."}
         now = time.time()
-        if user_id in self.ticket_cooldown and now - self.ticket_cooldown[user_id] < 30:
-            return
+        if now - self.ticket_cooldown.get(user_id, 0) < 30:
+            return {"error": "Please wait a few seconds before opening another ticket."}
         self.ticket_cooldown[user_id] = now
-        
+        prefix = "bug" if bug else "ticket"
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]", "-", username)[:40]
         thread = await self.api("POST", f"/channels/{CHANNELS['open_ticket']}/threads", {
-            "name": f"ticket-{username}",
-            "type": 12,  # GUILD_PRIVATE_THREAD
-            "auto_archive_duration": 1440,  # 24 hours
-            "invitable": False,
+            "name": f"{prefix}-{safe_name}-{user_id}",
+            "type": 12, "auto_archive_duration": 1440, "invitable": False,
         })
-        
-        if thread and 'id' in thread:
-            thread_id = thread['id']
-            # Add the user to the thread
-            await self.api("PUT", f"/channels/{thread_id}/thread-members/{user_id}")
-            
-            # Add all founders and mods to the ticket
-            members = await self.api("GET", f"/guilds/{GUILD_ID}/members?limit=50")
-            if members:
-                for m in members:
-                    member_roles = set(m.get('roles', []))
-                    if member_roles & STAFF_ROLES and not m.get('user', {}).get('bot'):
-                        staff_id = m['user']['id']
+        if not thread or not thread.get("id"):
+            self.ticket_cooldown.pop(user_id, None)
+            return {"error": "The ticket could not be created. Please try again or use https://forge-futures.com/support"}
+        thread_id = thread["id"]
+        added = await self.api("PUT", f"/channels/{thread_id}/thread-members/{user_id}")
+        if added is None:
+            await self.api("PATCH", f"/channels/{thread_id}", {"archived": True, "locked": True})
+            self.ticket_cooldown.pop(user_id, None)
+            return {"error": "We could not add you to the private ticket. Please use https://forge-futures.com/support"}
+        after = ""
+        while True:
+            members = await self.api("GET", f"/guilds/{GUILD_ID}/members?limit=1000" + (f"&after={after}" if after else ""))
+            if not isinstance(members, list):
+                await self.log("Ticket staffing check failed", f"Please inspect <#{thread_id}>.", 0xE67E22)
+                break
+            for member in members:
+                if set(member.get("roles", [])) & STAFF_ROLES and not member.get("user", {}).get("bot"):
+                    staff_id = member["user"]["id"]
+                    if staff_id != user_id:
                         await self.api("PUT", f"/channels/{thread_id}/thread-members/{staff_id}")
-            
-            # Send welcome message in the ticket
-            await self.api("POST", f"/channels/{thread_id}/messages", {
-                "embeds": [{
-                    "title": "🎫 Support Ticket",
-                    "description": (
-                        f"Hey <@{user_id}>, thanks for opening a ticket!\n\n"
-                        "**Please describe your issue:**\n"
-                        "• What's the problem?\n"
-                        "• What account/plan does it relate to?\n"
-                        "• Any screenshots?\n\n"
-                        "A staff member will respond within 24 hours."
-                    ),
-                    "color": 0xFE602F,
-                }],
-                "components": [{
-                    "type": 1,
-                    "components": [{
-                        "type": 2,
-                        "style": 4,
-                        "label": "Close Ticket",
-                        "emoji": {"name": "🔒"},
-                        "custom_id": f"close_ticket_{thread_id}"
-                    }]
-                }]
-            })
-            
-            print(f"  🎫 Ticket created for {username}")
-            await self.log("🎫 New Ticket", f"**{username}** opened a support ticket.", 0x3498DB)
+            if len(members) < 1000:
+                break
+            after = members[-1]["user"]["id"]
+        details = (
+            "**Steps to reproduce:**\n**Expected result:**\n**Actual result:**\n**Device / browser:**\n**Time and time zone:**"
+            if bug else
+            "**What happened?**\n**Affected account / order reference:**\n**Time and time zone:**\n**What did you expect?**"
+        )
+        message = await self.api("POST", f"/channels/{thread_id}/messages", {
+            "allowed_mentions": {"parse": []},
+            "embeds": [{
+                "title": "BUG REPORT · PRIVATE" if bug else "SUPPORT · PRIVATE",
+                "description": f"<@{user_id}>, your private ticket is ready.\n\n{details}\n\n"
+                    "Redact screenshots. Never send passwords, MFA/recovery codes, full card details, private keys or identity documents here.",
+                "color": 0xFF6B00,
+            }],
+            "components": [{"type": 1, "components": [{
+                "type": 2, "style": 2, "label": "Close ticket",
+                "custom_id": f"close_ticket_{thread_id}",
+            }]}],
+        })
+        if not message or not message.get("id"):
+            await self.log("Ticket welcome failed", f"Private thread exists at <#{thread_id}>; staff attention required.", 0xE67E22)
+            return {"id": thread_id, "warning": "Your thread is open but its welcome panel could not load. Describe the issue there."}
+        await self.log("Bug ticket opened" if bug else "Support ticket opened", f"<@{user_id}> opened <#{thread_id}>.", 0xFF6B00)
+        return {"id": thread_id}
 
     # ============================================================
     # WELCOME / MEMBER EVENTS
@@ -624,140 +607,69 @@ class ForgeBot:
     # ============================================================
     
     async def handle_interaction(self, data):
-        """Handle button clicks and other interactions."""
-        interaction_type = data.get('type')
-        
-        # Type 3 = Message Component (button click)
-        if interaction_type == 3:
-            custom_id = data.get('data', {}).get('custom_id', '')
-            user = data.get('member', {}).get('user', {}) or data.get('user', {})
-            username = user.get('username', 'Unknown')
-            channel_id = data.get('channel_id')
-            interaction_id = data.get('id')
-            interaction_token = data.get('token')
-            
-            # Close ticket button
-            if custom_id.startswith('close_ticket_'):
-                # Acknowledge the interaction immediately
-                await self.api("POST", 
-                    f"/interactions/{interaction_id}/{interaction_token}/callback",
-                    {"type": 4, "data": {"embeds": [{
-                        "title": "🔒 Ticket Closed",
-                        "description": f"This ticket was closed by **{username}**.\n\nIf you need further help, open a new ticket in <#{CHANNELS['open_ticket']}>.",
-                        "color": 0xE74C3C,
-                    }], "flags": 0}}
-                )
-                
-                # Archive and lock the thread
-                await self.api("PATCH", f"/channels/{channel_id}", {
-                    "archived": True,
-                    "locked": True
-                })
-                
-                await self.log("🔒 Ticket Closed", f"Ticket in <#{channel_id}> closed by **{username}**.", 0xE74C3C)
-                print(f"  🔒 Ticket closed by {username}")
-            
-            # Open ticket button (for the main ticket channel)
-            elif custom_id == 'open_ticket':
-                user_id = user.get('id')
-                # Acknowledge
-                await self.api("POST",
-                    f"/interactions/{interaction_id}/{interaction_token}/callback",
-                    {"type": 4, "data": {"content": "🎫 Creating your ticket...", "flags": 64}}
-                )
-                await self.create_ticket(user_id, username)
-            
-            # Bug report ticket button
-            elif custom_id == 'bug_ticket':
-                user_id = user.get('id')
-                await self.api("POST",
-                    f"/interactions/{interaction_id}/{interaction_token}/callback",
-                    {"type": 4, "data": {"content": "🐛 Creating your bug report ticket...", "flags": 64}}
-                )
-                # Create bug-specific ticket
-                now = time.time()
-                if user_id in self.ticket_cooldown and now - self.ticket_cooldown[user_id] < 30:
-                    return
-                self.ticket_cooldown[user_id] = now
-                
-                thread = await self.api("POST", f"/channels/{CHANNELS['open_ticket']}/threads", {
-                    "name": f"bug-{username}",
-                    "type": 12,
-                    "auto_archive_duration": 1440,
-                    "invitable": False,
-                })
-                if thread and 'id' in thread:
-                    thread_id = thread['id']
-                    await self.api("PUT", f"/channels/{thread_id}/thread-members/{user_id}")
-                    members = await self.api("GET", f"/guilds/{GUILD_ID}/members?limit=50")
-                    if members:
-                        for m in members:
-                            mroles = set(m.get('roles', []))
-                            if mroles & STAFF_ROLES and not m.get('user', {}).get('bot'):
-                                await self.api("PUT", f"/channels/{thread_id}/thread-members/{m['user']['id']}")
-                    await self.api("POST", f"/channels/{thread_id}/messages", {
-                        "embeds": [{
-                            "title": "🐛 Bug Report",
-                            "description": (
-                                f"Hey <@{user_id}>, thanks for reporting a bug!\n\n"
-                                "**Please include:**\n"
-                                "📝 What happened?\n"
-                                "🔄 Steps to reproduce\n"
-                                "✅ What should have happened?\n"
-                                "📸 Screenshots or screen recordings\n"
-                                "💻 Device & browser\n\n"
-                                "The team will investigate ASAP."
-                            ),
-                            "color": 0xE74C3C,
-                        }],
-                        "components": [{"type": 1, "components": [{
-                            "type": 2, "style": 4, "label": "Close Ticket",
-                            "emoji": {"name": "🔒"}, "custom_id": f"close_ticket_{thread_id}"
-                        }]}]
-                    })
-                    await self.log("🐛 Bug Report", f"Bug ticket opened by **{username}** in <#{thread_id}>", 0xE74C3C)
-                    print(f"  🐛 Bug ticket created for {username}")
-            
-            # Role buttons
-            elif custom_id.startswith('role_'):
-                role_map = {
-                    'role_es_trader': ROLES['es_trader'],
-                    'role_nq_trader': ROLES['nq_trader'],
-                    'role_eu_session': ROLES['eu_session'],
-                    'role_us_session': ROLES['us_session'],
-                    'role_challenger': ROLES['challenger'],
-                }
-                role_id = role_map.get(custom_id)
-                if role_id:
-                    user_id = user.get('id')
-                    member_data = data.get('member', {})
-                    current_roles = set(member_data.get('roles', []))
-                    
-                    role_names = {
-                        'role_es_trader': '📈 ES Trader',
-                        'role_nq_trader': '📉 NQ Trader',
-                        'role_eu_session': '🌍 EU Session',
-                        'role_us_session': '🇺🇸 US Session',
-                        'role_challenger': '🔥 Active Challenger',
-                    }
-                    role_label = role_names.get(custom_id, 'Role')
-                    
-                    if role_id in current_roles:
-                        # Remove role (toggle off)
-                        await self.api("DELETE", f"/guilds/{GUILD_ID}/members/{user_id}/roles/{role_id}")
-                        await self.api("POST",
-                            f"/interactions/{interaction_id}/{interaction_token}/callback",
-                            {"type": 4, "data": {"content": f"❌ Removed **{role_label}**", "flags": 64}}
-                        )
-                        print(f"  ❌ Role removed: {username} lost {role_label}")
-                    else:
-                        # Add role (toggle on)
-                        await self.api("PUT", f"/guilds/{GUILD_ID}/members/{user_id}/roles/{role_id}")
-                        await self.api("POST",
-                            f"/interactions/{interaction_id}/{interaction_token}/callback",
-                            {"type": 4, "data": {"content": f"✅ Added **{role_label}**", "flags": 64}}
-                        )
-                        print(f"  ✅ Role added: {username} got {role_label}")
+        if not is_target_guild_event(data) or data.get("type") != 3:
+            return
+        custom_id = data.get("data", {}).get("custom_id", "")
+        user = data.get("member", {}).get("user", {})
+        user_id = user.get("id")
+        channel_id = data.get("channel_id")
+        if not user_id:
+            return
+        callback = f"/interactions/{data['id']}/{data['token']}/callback"
+        reply_path = f"/webhooks/{data.get('application_id', BOT_ID)}/{data['token']}/messages/@original"
+        # Acknowledge before any Discord API work; every branch gets a final result.
+        await self.api("POST", callback, {"type": 5, "data": {"flags": 64}})
+
+        async def reply(content):
+            await self.api("PATCH", reply_path, {"content": content, "allowed_mentions": {"parse": []}})
+
+        if custom_id in {"open_ticket", "bug_ticket"}:
+            expected = CHANNELS["open_ticket"] if custom_id == "open_ticket" else CHANNELS["bug_reports"]
+            if channel_id != expected:
+                await reply("Use the official support or bug-report panel.")
+                return
+            result = await self.create_ticket(user_id, user.get("username", "trader"), bug=custom_id == "bug_ticket")
+            if result.get("id"):
+                await reply(f"Your private ticket: <#{result['id']}>. " + result.get("warning", "Reply inside that thread."))
+            else:
+                await reply(result["error"])
+            return
+
+        if custom_id.startswith("close_ticket_"):
+            expected_id = custom_id.removeprefix("close_ticket_")
+            thread = await self.api("GET", f"/channels/{channel_id}")
+            if (expected_id != channel_id or not thread or thread.get("type") != 12
+                    or thread.get("parent_id") != CHANNELS["open_ticket"]):
+                await reply("This control can only close its own private Forge support ticket.")
+                return
+            staff = bool(set(data.get("member", {}).get("roles", [])) & STAFF_ROLES)
+            membership = await self.api("GET", f"/channels/{channel_id}/thread-members/{user_id}") if not staff else {}
+            if membership is None:
+                await reply("You are not a member of this ticket.")
+                return
+            result = await self.api("PATCH", f"/channels/{channel_id}", {"archived": True, "locked": True})
+            await reply("Ticket closed. You can open a new ticket whenever you need help." if result is not None else "The ticket could not be closed. Please try again.")
+            if result is not None:
+                await self.log("Ticket closed", f"<@{user_id}> closed <#{channel_id}>.", 0xFF6B00)
+            return
+
+        role_map = {
+            "role_es_trader": (ROLES["es_trader"], "ES / MES"),
+            "role_nq_trader": (ROLES["nq_trader"], "NQ / MNQ"),
+            "role_eu_session": (ROLES["eu_session"], "London / Europe"),
+            "role_us_session": (ROLES["us_session"], "New York / US"),
+            "role_challenger": (ROLES["challenger"], "In The Forge"),
+        }
+        if custom_id in role_map and channel_id == CHANNELS["get_roles"]:
+            role_id, label = role_map[custom_id]
+            remove = role_id in data.get("member", {}).get("roles", [])
+            result = await self.api("DELETE" if remove else "PUT", f"/guilds/{GUILD_ID}/members/{user_id}/roles/{role_id}")
+            if result is None:
+                await reply("That role could not be updated. Please try again or open a support ticket.")
+            else:
+                await reply(f"{'Removed' if remove else 'Added'} {label}.")
+            return
+        await reply("This control is not available. Please use the latest Forge panel.")
 
     # ============================================================
     # AUTO-MODERATION

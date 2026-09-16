@@ -10,6 +10,9 @@ import feedparser
 import requests
 
 from newsroom import (
+    DISCORD_BASE,
+    DISCORD_TIMEOUT_SECONDS,
+    discord_headers,
     FORGE_ORANGE,
     brand_embed,
     fetch_economic_calendar,
@@ -30,6 +33,8 @@ CHANNEL = os.environ.get(
     "1482427993140760636",
 )
 REQUEST_TIMEOUT_SECONDS = 10
+STARTUP_GRACE_MINUTES = 45
+BOT_ID = os.environ.get("DISCORD_BOT_ID", "1482017269092716645")
 YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
@@ -283,7 +288,57 @@ def should_run_session(session: str, now: datetime | None = None) -> bool:
     utc_now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     local_now = utc_now.astimezone(ZoneInfo(config["schedule_timezone"]))
     target_hour, target_minute = config["target_time"]
-    return (local_now.hour, local_now.minute) == (target_hour, target_minute)
+    target = local_now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+    # A 23:30 session may start after midnight; it still belongs to yesterday.
+    if target > local_now and (target - local_now) > timedelta(hours=23):
+        target -= timedelta(days=1)
+    return timedelta(0) <= local_now - target < timedelta(minutes=STARTUP_GRACE_MINUTES)
+
+
+def session_delivery_key(session: str, now: datetime) -> str:
+    config = SESSION_CONFIG[session]
+    local = now.astimezone(ZoneInfo(config["schedule_timezone"]))
+    target = local.replace(hour=config["target_time"][0], minute=config["target_time"][1], second=0, microsecond=0)
+    if target > local and target - local > timedelta(hours=23):
+        target -= timedelta(days=1)
+    return f"Forge briefing | {session} | {target:%Y-%m-%d}"
+
+
+def prior_delivery(key: str) -> dict | None:
+    # Fail closed on history errors: never call an unverified send a success.
+    response = requests.get(
+        f"{DISCORD_BASE}/channels/{CHANNEL}/messages?limit=100",
+        headers=discord_headers(TOKEN), timeout=DISCORD_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200 or not isinstance(response.json(), list):
+        raise RuntimeError("Cannot check briefing delivery history")
+    for message in response.json():
+        if str(message.get("author", {}).get("id")) != BOT_ID:
+            continue
+        if any(key == str(embed.get("footer", {}).get("text", "")).split(" • ")[-1]
+               for embed in message.get("embeds", [])):
+            return message
+    return None
+
+
+def deliver_session(session: str, now: datetime) -> bool:
+    key = session_delivery_key(session, now)
+    previous = prior_delivery(key)
+    if previous:
+        if int(previous.get("flags", 0)) & 1:
+            print(f"ALREADY_DELIVERED: {key}")
+            return True
+        # A previous send succeeded but publishing failed: retry only publishing.
+        result = requests.post(
+            f"{DISCORD_BASE}/channels/{CHANNEL}/messages/{previous['id']}/crosspost",
+            headers=discord_headers(TOKEN), timeout=DISCORD_TIMEOUT_SECONDS,
+        )
+        return result.status_code in (200, 201)
+    embed = build_briefing(session)
+    embed["footer"]["text"] += f" • {key}"
+    if now.astimezone(ZoneInfo(SESSION_CONFIG[session]["schedule_timezone"])).weekday() >= 5:
+        embed["description"] += " Weekend edition: quotes may reflect the last trading session; this is not a live-market status indicator."
+    return bool(post_discord(TOKEN, CHANNEL, [embed], publish=True, delivery_key=key))
 
 
 def main() -> None:
@@ -292,20 +347,30 @@ def main() -> None:
     if session not in SESSION_CONFIG:
         print(f"Unknown session: {session}")
         raise SystemExit(2)
-    if "--force" not in args and not should_run_session(session):
+    now = datetime.now(timezone.utc)
+    if "--force" not in args and not should_run_session(session, now):
         timezone_name = SESSION_CONFIG[session]["schedule_timezone"]
         target_hour, target_minute = SESSION_CONFIG[session]["target_time"]
         print(
-            f"SKIP: {session.upper()} briefing is scheduled for "
+            f"OUTSIDE_SESSION_WINDOW: {session.upper()} briefing is scheduled for "
             f"{target_hour:02d}:{target_minute:02d} {timezone_name}"
         )
         return
 
-    posted = post_embed(build_briefing(session))
-    if not posted:
-        print(f"ERROR: {session.upper()} briefing failed")
-        raise SystemExit(1)
-    print(f"OK: {session.upper()} briefing posted and published")
+    # Railway cron jobs do not restart automatically on failure. Retry within
+    # this short-lived process; delivery keys resume partial publication safely.
+    import time
+    for attempt in range(3):
+        try:
+            if deliver_session(session, now):
+                print(f"OK: {session.upper()} briefing posted and published")
+                return
+        except (requests.RequestException, RuntimeError, ValueError, KeyError) as exc:
+            print(f"DELIVERY_RETRY: {session.upper()} attempt {attempt + 1}: {type(exc).__name__}")
+        if attempt < 2:
+            time.sleep(15 * (attempt + 1))
+    print(f"ERROR: {session.upper()} briefing failed after three attempts")
+    raise SystemExit(1)
 
 
 if __name__ == "__main__":

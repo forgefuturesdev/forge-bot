@@ -7,5 +7,6 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 
 COPY *.py ./
 COPY assets/ ./assets/
+COPY community-assets.zip ./community-assets.zip
 
 CMD ["python", "-u", "bot.py"]
