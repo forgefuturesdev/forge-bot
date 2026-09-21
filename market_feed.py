@@ -6,15 +6,12 @@ import os
 import sys
 from zoneinfo import ZoneInfo
 
-from ddgs import DDGS
-import requests
-
 from newsroom import (
     FORGE_ORANGE,
     brand_embed,
     fetch_economic_calendar,
+    fetch_market_news,
     filter_unseen_news,
-    headline_category,
     headline_fields,
     post_discord as send_discord,
     recent_channel_links,
@@ -125,29 +122,11 @@ def post_daily_calendar() -> bool:
 
 
 def get_market_news(count: int = 14) -> list[dict]:
-    try:
-        results = list(
-            DDGS().news(
-                "futures market S&P 500 Nasdaq Federal Reserve economy",
-                max_results=count,
-            )
-        )
-    except Exception as exc:
-        print(f"Market news search failed: {type(exc).__name__}")
-        return []
-
-    items: list[dict] = []
-    for result in results:
-        title = str(result.get("title") or "")
-        items.append(
-            {
-                "title": title,
-                "source": result.get("source") or "Market source",
-                "url": result.get("url"),
-                "category": headline_category(title),
-            }
-        )
-    return items
+    return fetch_market_news(
+        count,
+        headers=SOURCE_HEADERS,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
 
 
 def post_market_news() -> bool:

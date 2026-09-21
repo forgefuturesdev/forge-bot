@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 import json
 import hashlib
 import os
@@ -28,6 +29,9 @@ DISCORD_FOOTER_LIMIT = 2048
 CALENDAR_JSON_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 CALENDAR_XML_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"
 CALENDAR_REQUEST_ATTEMPTS = 2
+NEWS_REQUEST_ATTEMPTS = 2
+NEWS_RSS_URL = "https://news.google.com/rss/search"
+NEWS_BACKUP_RSS_URL = "https://search.cnbc.com/rs/search/combinedcms/view.xml"
 FORGE_ORANGE = 0xFE602F
 FORGE_SITE_URL = os.environ.get("FORGE_SITE_URL", "https://forge-futures.com")
 FORGE_DISCORD_URL = os.environ.get(
@@ -319,6 +323,81 @@ def filter_unseen_news(
         if len(selected) >= limit:
             break
     return selected
+
+
+def parse_market_news_rss(
+    content: bytes,
+    *,
+    source: str,
+    now: datetime | None = None,
+) -> list[dict]:
+    if len(content) > 1_000_000:
+        return []
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError:
+        return []
+    current = now or datetime.now(timezone.utc)
+    items: list[dict] = []
+    for entry in root.findall("./channel/item"):
+        title = clean_text(entry.findtext("title"), 300)
+        url = safe_https_url(entry.findtext("link"))
+        try:
+            published = parsedate_to_datetime(entry.findtext("pubDate") or "")
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if published.tzinfo is None:
+            continue
+        published = published.astimezone(timezone.utc)
+        age = current - published
+        if not title or not url or age > timedelta(hours=48) or age < -timedelta(minutes=5):
+            continue
+        source_name = clean_text(entry.findtext("source"), 80) or source
+        suffix = f" - {source_name}"
+        if title.endswith(suffix):
+            title = title[:-len(suffix)]
+        items.append({
+            "title": title,
+            "source": source_name,
+            "url": url,
+            "category": headline_category(title),
+            "published_at": published.isoformat(),
+        })
+    return sorted(items, key=lambda item: item["published_at"], reverse=True)
+
+
+def fetch_market_news(
+    count: int = 14,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: int = 10,
+) -> list[dict]:
+    if count <= 0:
+        return []
+    sources = (
+        ("Google News", NEWS_RSS_URL, {
+            "q": "S&P 500 Nasdaq futures Federal Reserve economy when:1d",
+            "hl": "en-GB", "gl": "GB", "ceid": "GB:en",
+        }),
+        ("CNBC", NEWS_BACKUP_RSS_URL, {"partnerId": "wrss01", "id": "20910258"}),
+    )
+    for source, url, params in sources:
+        for attempt in range(1, NEWS_REQUEST_ATTEMPTS + 1):
+            try:
+                response = requests.get(url, params=params, headers=headers, timeout=timeout)
+                if response.status_code != 200:
+                    print(f"Market news {source}: HTTP {response.status_code} (attempt {attempt})")
+                    continue
+                items = parse_market_news_rss(response.content, source=source)
+                selected = filter_unseen_news(items, set(), limit=count)
+                if selected:
+                    print(f"Market news {source}: {len(selected)} recent headlines")
+                    return selected
+                print(f"Market news {source}: no valid recent headlines (attempt {attempt})")
+            except requests.RequestException as exc:
+                print(f"Market news {source}: {type(exc).__name__} (attempt {attempt})")
+    # A total source outage remains a failed run, never a fabricated or stale post.
+    return []
 
 
 def headline_category(title: object) -> str:

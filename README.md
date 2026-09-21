@@ -57,6 +57,12 @@ The deployed newsroom schedule runs:
 - three weekday Market Pulse checks, with cross-run link deduplication
 - a published weekly outlook on Sunday
 
+Market Pulse reads dated, source-linked RSS headlines from Google News, with
+CNBC as a backup. Each source has two bounded attempts with a 10-second request
+timeout. Undated, invalid, future-dated and older-than-48-hour items are excluded.
+Already-posted headlines are skipped successfully; if neither source supplies
+usable headlines, the run fails visibly instead of publishing stale content.
+
 London and New York jobs use two UTC cron windows plus an in-process local-time
 guard. This preserves a 07:30 London briefing and 09:00 New York briefing when
 the UK or US changes daylight-saving time. The Asia briefing similarly stays at
