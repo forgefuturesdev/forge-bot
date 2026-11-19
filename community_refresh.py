@@ -94,7 +94,7 @@ def all_members():
 
 def resolve_staff(members):
     found = {}
-    for username in ("forgefutures", "jackforgefutures"):
+    for username in ("forgefutures", "samforgefutures"):
         matches = [m for m in members if m.get("user", {}).get("username") == username and not m["user"].get("bot")]
         if len(matches) != 1 or FOUNDER not in matches[0].get("roles", []):
             raise api.DiscordError(f"Cannot verify current Founder @{username}; refusing staff-directory update")
@@ -176,7 +176,7 @@ def panels(staff, public_bug_id=None):
              ('06 · Moderation', 'Staff may remove unsafe content and restrict accounts that break these rules. Raise a moderation concern privately through a ticket.')])],
         'verified-staff': [panel('staff', 'VERIFY THE PERSON. NOT THE DISPLAY NAME.', 'These are the current Forge Futures founders. Click the mentions to open the exact accounts.',
             [('Joe | Forge Futures', f'<@{staff["forgefutures"]}>\nUsername: **`forgefutures`**'),
-             ('Jack | Forge Futures', f'<@{staff["jackforgefutures"]}>\nUsername: **`jackforgefutures`**'),
+             ('Sam | Forge Futures', f'<@{staff["samforgefutures"]}>\nUsername: **`samforgefutures`**'),
              ('Stay safe', f'Display names and avatars can be copied. Start support in {ticket}. Never send passwords, MFA codes, payment-card details or wallet keys in Discord. We will not ask you to pay a staff member personally.')])],
         'open-ticket': [panel('support', 'Open a Support Ticket', 'Account question, billing issue or platform problem? Open a private ticket with the Forge team.',
             [('How it works', '1. Click Open ticket.\n2. Follow the private thread link shown only to you.\n3. Describe the issue and reply in that thread.'),

@@ -47,20 +47,29 @@ class CommunityRefreshTests(unittest.TestCase):
     def test_asset_archive_has_exactly_the_reviewed_pngs(self):
         from zipfile import ZipFile
         with ZipFile(refresh.ASSET_ARCHIVE) as archive:
-            for specs in refresh.panels({'forgefutures': 'joe', 'jackforgefutures': 'jack'}).values():
+            for specs in refresh.panels({'forgefutures': 'joe', 'samforgefutures': 'sam-id'}).values():
                 for spec in specs:
                     for name in spec['assets']:
                         self.assertTrue(archive.read(name).startswith(b'\x89PNG\r\n\x1a\n'))
 
     def test_exact_staff_usernames_and_founder_role_are_required(self):
-        members = [{'user': {'id': name, 'username': name}, 'roles': [refresh.FOUNDER]} for name in ['forgefutures', 'jackforgefutures']]
-        self.assertEqual(set(refresh.resolve_staff(members)), {'forgefutures', 'jackforgefutures'})
+        members = [{'user': {'id': name, 'username': name}, 'roles': [refresh.FOUNDER]} for name in ['forgefutures', 'samforgefutures']]
+        self.assertEqual(set(refresh.resolve_staff(members)), {'forgefutures', 'samforgefutures'})
         members[1]['roles'] = [refresh.MEMBER]
         with self.assertRaises(refresh.api.DiscordError):
             refresh.resolve_staff(members)
 
+    def test_staff_directory_points_to_sams_verified_account(self):
+        staff = {'forgefutures': 'joe', 'samforgefutures': 'sam-id'}
+        directory = refresh.panels(staff)['verified-staff'][0]['embeds'][0]
+        self.assertIn({
+            'name': 'Sam | Forge Futures',
+            'value': '<@sam-id>\nUsername: **`samforgefutures`**',
+            'inline': False,
+        }, directory['fields'])
+
     def test_all_panels_meet_discord_limits(self):
-        staff = {'forgefutures': 'joe', 'jackforgefutures': 'new-jack'}
+        staff = {'forgefutures': 'joe', 'samforgefutures': 'sam-id'}
         for name, panels in refresh.panels(staff, 'bugs').items():
             for spec in panels:
                 refresh.api.validate_embeds(spec['embeds'])
@@ -70,7 +79,7 @@ class CommunityRefreshTests(unittest.TestCase):
                     self.assertTrue(all(len(b['label']) <= 80 for b in row['components']))
 
     def test_all_certificate_examples_are_explicitly_fictional(self):
-        for specs in refresh.panels({'forgefutures': 'joe', 'jackforgefutures': 'jack'}).values():
+        for specs in refresh.panels({'forgefutures': 'joe', 'samforgefutures': 'sam-id'}).values():
             for spec in specs:
                 if any(a.startswith('EXAMPLE-') for a in spec['assets']):
                     e = spec['embeds'][0]
